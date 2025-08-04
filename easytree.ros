@@ -1,0 +1,134 @@
+#!/bin/sh
+#|-*- mode:lisp -*-|#
+#|
+exec ros -Q -- $0 "$@"
+|#
+(progn ;;init forms
+  (ros:ensure-asdf)
+  #+quicklisp(ql:quickload '(clingon cl-ppcre) :silent t)
+  )
+
+(defpackage :ros.script.easytree.3962885522
+  (:use :cl))
+(in-package :ros.script.easytree.3962885522)
+
+;;; Variables
+(defparameter *OS* nil)
+
+(defun det-*OS* ()
+  (cond ((member :windows *features*) :windows)
+        ((member :unix *features*)
+         (cond ((member :darwin *features*) :mac)
+               (t :unix)))
+        (t (error "OS not recognized!"))))
+
+
+;; Path separator (as a string)
+(defparameter *path-sep* nil)
+
+(defun det-*path-sep* ()
+  (ecase *OS* (:windows "\\") (:unix "/") (:mac "/")))
+
+
+;; Known dir listing formats
+(defconstant +fmt+ '(:ls :find :tree))
+
+
+;;; Command line
+(defun cli-convert-cmd-handler (cmd)
+  (declare (ignorable cmd)))
+
+(defun cli-convert-cmd-opts ()
+  (list
+   (clingon:make-option
+    :choice
+    :description "Input format (from)"
+    :short-name #\f
+    :long-name "from"
+    :key :from
+    :items +fmt+)
+   (clingon:make-option
+    :choice
+    :description "Output format (to)"
+    :short-name #\t
+    :long-name "to"
+    :key :to
+    :items +fmt+)
+   (clingon:make-option
+    :string
+    :description "Strip paths by prefix (N dirs, string dir)"
+    :short-name #\s
+    :long-name "strip"
+    :key :strip)
+   (clingon:make-option
+    :string
+    :description "Prepend paths with common prefix"
+    :short-name #\p
+    :long-name "prepend"
+    :key :prepend)))
+
+(defun cli-convert-cmd ()
+  (clingon:make-command
+   :name "convert"
+   :usage "[-f FMT] -t FMT [-s] [-r]" ;; --strip DIR/<int> --rebase DIR
+   :examples '(("Convert from one format to another:" . "ls|convert -f LS -t TREE -")
+               ("Convert from unknown format to another:" . "tree|convert -t TREE -")
+               ("Convert from unknown format to another:" . "tree|convert -f AUTO -t FIND -"))
+   :description "Convert a tree from one format to another one"
+   :handler #'cli-convert-cmd-handler
+   :options (cli-convert-cmd-opts)))
+
+
+(defun cli-main-cmd (argv0)
+  (declare (ignorable argv0))
+  (clingon:make-command
+   :name "tree"
+   :description "File system tree"
+   :version "0.1.0"
+   :authors '("John Doe <john.doe@example.org>")
+   :license "BSD 2-Clause"
+   :sub-commands (list (cli-convert-cmd))
+   :handler (lambda (cmd)
+              (format t "No known subcommand provided!~%~%")
+              (clingon:print-usage cmd *standard-output*)
+              (uiop:quit 1))))
+
+
+;; convert -f AUTO|FIND|LS|TREE -t FIND|LS|TREE
+;; union|intersect|diff|uniq -f AUTO|FIND|LS|TREE -f AUTO|FIND|LS|TREE
+;; over -f AUTO|FIND|LS|TREE -t FIND|LS|TREE -c <CMD>|ENSURE|DELETE
+
+(defun full-argv ()
+  (or
+   #+sbcl sb-ext:*posix-argv*
+   #+clisp ext:*args*
+   #+cmu extensions:*command-line-words*
+   #+allegro (sys:command-line-arguments)
+   #+lispworks system:*line-arguments-list*
+   nil))
+
+
+
+;;; Main
+
+(defun process-argv (argv)
+  (let* ((fargv (full-argv))
+         (buf (make-string 3))
+         (arg0-file-header (handler-case ;; if we cannot read, return fake 3 item string
+                            (with-open-file (strm (car argv) :direction :input)
+                              (and (read-sequence buf strm) buf))
+                             (error () (make-string 3)))))
+    (cond ((string= "#!/" (subseq arg0-file-header 0 3)) (list :script (car argv)))
+          (t (list :binary (car fargv))))))
+
+
+(defun main (&rest argv)
+  (let* ((*OS* (det-*OS*))
+         (*path-sep* (det-*path-sep*))
+         (qual-argv (process-argv argv))
+         (fixed-argv (ecase (car qual-argv)
+                       (:script (rest argv))
+                       (:binary argv))))
+    (clingon:run (cli-main-cmd (nth 1 qual-argv)) fixed-argv)))
+
+;;; vim: set ft=lisp lisp:
