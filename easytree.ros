@@ -12,7 +12,22 @@ exec ros -Q -- $0 "$@"
   (:use :cl))
 (in-package :ros.script.easytree.3962885522)
 
-;;; Variables
+#|
+1. tree: starts with non-alphanum symbols (and ' ') longer than 1 - then, only
+alphanum symbols and '/' or '\' or ':' (OS depending)
+
+2. find: no NL, no ':' at the end of lines
+
+3. ls -1R: NL, some lines have ':' at the end (but the next line after it - has not ':' at the end)
+
+4. ls -1Rl: the same as 3rd but with additional columns in the front of lines without ':' at the end.
+Also it has (after ':'-lines) line as "total 12" (entries). The 1st field of lines-entries may start
+with '-' (even more, like -rwx------ or --w-------)
+|#
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Variables ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (defparameter *OS* nil)
 
 (defun det-*OS* ()
@@ -33,8 +48,50 @@ exec ros -Q -- $0 "$@"
 ;; Known dir listing formats
 (defconstant +fmt+ '(:ls :find :tree))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Logic ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defun detect-series (input classifiers)
+  (let ((results nil)
+        ;; current-result is (class-of-series . the-length-of-series):
+        (current-result (cons -1 0))
+        ;; objects in input that cannot be classified (index in classifiers), will be
+        ;; marked with index out of bounds, ie, max allowed index + 1 (or their length):
+        (unknown-class (length classifiers))
+        ;; did we classified the object using all classifiers on the loop:
+        (classified nil))
+    (unless (or (null input) (null classifiers))  ;; just ignore empty input/classifiers
+      (dolist (obj input)
+        (setf classified nil)
+        (dotimes (c (length classifiers))
+          (when (funcall (nth c classifiers) obj)
+            ;; classified by the current classifier or a new one, anyway, must be marked
+            ;; as classified, else it will be marked as unknown class:
+            (setf classified t)
+            (if (= c (car current-result))
+                (setf (cdr current-result) (1+ (cdr current-result)))
+                (progn
+                  (unless (= -1 (car current-result))
+                    (push current-result results))
+                  (setf current-result (cons c 1))))))
+        (unless classified
+          ;; if no classifiers recognized obj, then it will be unknown-class. But first,
+          ;; we look if the current-result already is unknown-class - if yes, then we
+          ;; expand it (increment its length). If it was some known classifier, we add
+          ;; it to all results. Else - just replace it (such class is -1):
+          (cond
+            ((= -1 (car current-result))
+             (setf current-result (cons unknown-class 1)))
+            ((= unknown-class (car current-result))
+             (setf (cdr current-result) (1+ (cdr current-result))))
+            (t (push current-result results)
+               (setf current-result (cons unknown-class 1)))))))
+    ;; the last series, not added by new one, bcs no more iterations - chars ended:
+    (unless (= -1 (car current-result))
+      (push current-result results))
+    (nreverse results)))
 
-;;; Command line
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (defun cli-convert-cmd-handler (cmd)
   (declare (ignorable cmd)))
 
@@ -62,7 +119,7 @@ exec ros -Q -- $0 "$@"
     :key :strip)
    (clingon:make-option
     :string
-    :description "Prepend paths with common prefix"
+    :description "Prepend paths with common directory-prefix"
     :short-name #\p
     :long-name "prepend"
     :key :prepend)))
@@ -70,7 +127,7 @@ exec ros -Q -- $0 "$@"
 (defun cli-convert-cmd ()
   (clingon:make-command
    :name "convert"
-   :usage "[-f FMT] -t FMT [-s] [-r]" ;; --strip DIR/<int> --rebase DIR
+   :usage "[-f FMT] -t FMT [-s N,DIR] [-p DIR]" ;; --strip DIR/<int> --rebase DIR
    :examples '(("Convert from one format to another:" . "ls|convert -f LS -t TREE -")
                ("Convert from unknown format to another:" . "tree|convert -t TREE -")
                ("Convert from unknown format to another:" . "tree|convert -f AUTO -t FIND -"))
@@ -109,7 +166,7 @@ exec ros -Q -- $0 "$@"
 
 
 
-;;; Main
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Main ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun process-argv (argv)
   (let* ((fargv (full-argv))
