@@ -1,0 +1,150 @@
+{
+    "items": {
+        "1": {
+            "type": "end"
+        },
+        "2": {
+            "type": "branch",
+            "branchId": 0,
+            "one": "23",
+            "content": ""
+        },
+        "13": {
+            "type": "loopend",
+            "one": "41",
+            "content": "<p><strong>OverChars</strong></p>"
+        },
+        "14": {
+            "type": "loopbegin",
+            "one": "25",
+            "content": "<p><strong>OverChars</strong>, another one?</p>"
+        },
+        "22": {
+            "type": "simpleoutput",
+            "content": "<p>results</p>",
+            "one": "1"
+        },
+        "23": {
+            "type": "simpleinput",
+            "content": "<p>input string: string,</p><p>classifiers: [char -&gt; bool]</p>",
+            "one": "26"
+        },
+        "24": {
+            "type": "loopend",
+            "one": "31",
+            "content": "<p><strong>OverClassifiers</strong></p>"
+        },
+        "25": {
+            "type": "loopbegin",
+            "one": "27",
+            "content": "<p><strong>OverClassifiers</strong>, another one?</p>"
+        },
+        "26": {
+            "type": "action",
+            "content": "<p>results:[(class, len)] := [],</p><p>current result := (-1, 0),</p><p>unknown class := max classifiers + 1</p>",
+            "one": "33"
+        },
+        "27": {
+            "type": "question",
+            "content": "<p>current classifier recognized current char?</p>",
+            "one": "28",
+            "two": "24",
+            "flag1": 1
+        },
+        "28": {
+            "type": "question",
+            "content": "<p>is it current result's class?</p>",
+            "one": "43",
+            "two": "29",
+            "flag1": 0
+        },
+        "29": {
+            "type": "action",
+            "content": "<p>current result's length++</p>",
+            "one": "24"
+        },
+        "30": {
+            "type": "action",
+            "content": "<p>current result := (current class, 1)</p>",
+            "one": "24"
+        },
+        "31": {
+            "type": "question",
+            "content": "<p>no found classifier?</p>",
+            "one": "13",
+            "two": "37",
+            "flag1": 0
+        },
+        "33": {
+            "type": "question",
+            "content": "<p>input string or classifiers empty?</p>",
+            "one": "14",
+            "two": "22",
+            "flag1": 0
+        },
+        "34": {
+            "type": "case",
+            "one": "39",
+            "content": "<p>other (some known class)</p>"
+        },
+        "35": {
+            "type": "case",
+            "one": "40",
+            "two": "34",
+            "content": "<p>-1</p>"
+        },
+        "36": {
+            "type": "case",
+            "one": "38",
+            "two": "35",
+            "content": "<p>unknown class</p>"
+        },
+        "37": {
+            "type": "select",
+            "one": "36",
+            "content": "<p>current result's class</p>"
+        },
+        "38": {
+            "type": "action",
+            "content": "<p>current result's length++</p>",
+            "one": "13"
+        },
+        "39": {
+            "type": "action",
+            "content": "<p>add current result,</p><p>current result := (unknown class, 1)</p>",
+            "one": "13"
+        },
+        "40": {
+            "type": "action",
+            "content": "<p>current result := (unknown class, 1)</p>",
+            "one": "13"
+        },
+        "41": {
+            "type": "question",
+            "content": "<p>current result's class is not -1 ?</p>",
+            "one": "42",
+            "two": "22",
+            "flag1": 1
+        },
+        "42": {
+            "type": "action",
+            "content": "<p>add current result</p>",
+            "one": "22"
+        },
+        "43": {
+            "type": "question",
+            "content": "<p>current result's class is not -1?</p>",
+            "one": "44",
+            "two": "30",
+            "flag1": 1
+        },
+        "44": {
+            "type": "action",
+            "content": "<p>add current result</p>",
+            "one": "30"
+        }
+    },
+    "type": "drakon",
+    "name": "DetectFormat",
+    "style": "{\"padding\":20,\"font\":\"20px Arimo\",\"branchFont\":\"bold 20px Arimo\",\"maxWidth\":390}"
+}

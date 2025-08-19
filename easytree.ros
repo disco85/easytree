@@ -12,6 +12,55 @@ exec ros -Q -- $0 "$@"
   (:use :cl))
 (in-package :ros.script.easytree.3962885522)
 
+
+(defun truly (x)
+  "Like Python's bool()"
+  (if x t nil))
+
+
+;; (defun tree-line-p1 (line)
+;;   "Detects that the line looks as a line from `tree` like output"
+;;   (let ((i 0) (non-alphanums 0) (path-chars 0) (last-i (1- (length line))))
+;;     (and
+;;      (char/= #\: (char line last-i))
+;;      (loop :for ch = (char line i)
+;;            :while (< i last-i)
+;;            :while (not (alphanumericp ch))
+;;            :do (incf non-alphanums) (incf i)
+;;            :finally (return (/= non-alphanums 0)))
+;;      (loop :for ch = (char line i)
+;;            :while (< i last-i)
+;;            ;; can be "+-- non-alpha-num\ #\ copy_(1)"
+;;            :while (or (char= #\: ch) (char= #\/ ch) (char= #\\ ch) (alphanumericp ch))
+;;            :do (incf path-chars) (incf i)
+;;            :finally (return (/= path-chars 0))))))
+
+(defun tree-line-p (line)
+  "Detects that the line looks as a line from `tree`-like output"
+  (let ((i 0) (non-alphanums 0) (last-i (1- (length line))))
+    (truly
+     (and (> 0 last-i)
+          (char/= #\: (char line last-i))
+          (loop :for ch = (char line i)
+                :while (< i last-i)
+                :while (not (alphanumericp ch))
+                :do (incf non-alphanums) (incf i)
+                :finally (return (/= non-alphanums 0)))
+          ;; if after non-alphanums there are 1+ alphanums - OK:
+          (find-if #'alphanumericp line :start non-alphanums)))))
+
+
+(defun find-line-p (line)
+  "Detects that the line looks as a line from `find`-like output"
+  (let ((last-i (1- (length line))))
+    (truly
+     (and (> last-i 0)
+          (char/= #\: (char line last-i))
+          (or (find (char line 0) "./")
+              ;; Windows case for busybox (C:\...):
+              (and (> last-i 1) (alpha-char-p (char line 0))
+                   (char= #\: (char line 1))))))))
+
 #|
 1. tree: starts with non-alphanum symbols (and ' ') longer than 1 - then, only
 alphanum symbols and '/' or '\' or ':' (OS depending)
