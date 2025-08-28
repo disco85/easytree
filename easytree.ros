@@ -43,9 +43,9 @@ exec ros -Q -- $0 "$@"
 ;; +-----  file  <- all lines will start with the same spacing policy
 
 
-(defun tree-line-p (line)
+(defun tree-line-det (line)
   "Detects that the line looks as a line from `tree`-like output. Returns
-  NIL (not `tree`-like line) or '((cons :spaces <spaces-num-before-file-after-decoration>))"
+  NIL (not `tree`-like line) or '((:spaces . <spaces-num-before-file-after-decoration>))"
   (let ((i 0) (non-alphanums 0) (spaces 0) (last-i (1- (length line))))
     (when
         (and (> last-i 0)
@@ -65,7 +65,7 @@ exec ros -Q -- $0 "$@"
       (list (cons :spaces spaces)))))
 
 
-(defun find-line-p (line)
+(defun find-line-det (line)
   "Detects that the line looks as a line from `find`-like output"
   (let ((last-i (1- (length line))))
     (and (> last-i 0)
@@ -75,6 +75,47 @@ exec ros -Q -- $0 "$@"
              (and (> last-i 1) (alpha-char-p (char line 0))
                   (char= #\: (char line 1)))))))
 
+
+
+(defparameter *unicode-whitespace-chars*
+  '(#\Space #\Tab #\Newline #\Return
+    #\No-break_space           ; U+00A0
+    #\Ogham_space_mark         ; U+1680
+    #\En_quad                  ; U+2000
+    #\Em_quad                  ; U+2001
+    #\En_space                 ; U+2002
+    #\Em_space                 ; U+2003
+    #\Three-per-em_space       ; U+2004
+    #\Four-per-em_space        ; U+2005
+    #\Six-per-em_space         ; U+2006
+    #\Figure_space             ; U+2007
+    #\Punctuation_space        ; U+2008
+    #\Thin_space               ; U+2009
+    #\Hair_space               ; U+200A
+    #\Zero_width_space         ; U+200B
+    #\Narrow_no-break_space    ; U+202F
+    #\Medium_mathematical_space; U+205F
+    #\Ideographic_space))      ; U+3000
+
+
+(defun trim-any-whitespaces (string)
+  "Like Python's str.strip()"
+  (string-trim *unicode-whitespace-chars* string))
+
+
+(defun ls-1r-line-det (line)  ;; XXX Must be ran after `ls-1rl-line-det`
+  (let ((last-i (1- (length line))))
+    (or (string= "" (trim-any-whitespaces line))
+        (and (> last-i 0)
+             (find (char line 0) "./" :test #'char=)
+             (char= #\: (char line last-i)))
+        (and (> last-i 0)
+             (not (find (char line 0) *unicode-whitespace-chars* :test #'char=))
+             (char/= #\: (char line last-i))))))
+
+(defun ls-1rl-line-det (line)
+  ;; TODO
+  )
 #|
 1. tree: starts with non-alphanum symbols (and ' ') longer than 1 - then, only
 alphanum symbols and '/' or '\' or ':' (OS depending)
