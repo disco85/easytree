@@ -13,27 +13,20 @@ exec ros -Q -- $0 "$@"
 (in-package :ros.script.easytree.3962885522)
 
 
-(defun truly (x)
-  "Like Python's bool()"
-  (if x t nil))
+;; (defun truly (x)
+;;   "Like Python's bool()"
+;;   (if x t nil))
+
+(defun starts-with-p (string prefix &key case-insensitive)
+  "Check that `string` starts with `prefix`"
+  (and (<= (length prefix) (length string))
+       (if case-insensitive
+           (string-equal prefix (subseq string 0 (length prefix)))
+           (string= prefix (subseq string 0 (length prefix)) :start1 0 :start2 0))))
 
 
-;; (defun tree-line-p1 (line)
-;;   "Detects that the line looks as a line from `tree` like output"
-;;   (let ((i 0) (non-alphanums 0) (path-chars 0) (last-i (1- (length line))))
-;;     (and
-;;      (char/= #\: (char line last-i))
-;;      (loop :for ch = (char line i)
-;;            :while (< i last-i)
-;;            :while (not (alphanumericp ch))
-;;            :do (incf non-alphanums) (incf i)
-;;            :finally (return (/= non-alphanums 0)))
-;;      (loop :for ch = (char line i)
-;;            :while (< i last-i)
-;;            ;; can be "+-- non-alpha-num\ #\ copy_(1)"
-;;            :while (or (char= #\: ch) (char= #\/ ch) (char= #\\ ch) (alphanumericp ch))
-;;            :do (incf path-chars) (incf i)
-;;            :finally (return (/= path-chars 0))))))
+(defun ch-at (string i)
+  (if (or (>= i (length string)) (< i 0)) nil (char string i)))
 
 ;; XXX "Permission denied" containing lines must be ignored!
 ;; XXX Also "cannot open directory"
@@ -49,14 +42,14 @@ exec ros -Q -- $0 "$@"
   (let ((i 0) (non-alphanums 0) (spaces 0) (last-i (1- (length line))))
     (when
         (and (> last-i 0)
-             (char/= #\: (char line last-i))
-             (loop :for ch = (char line i)
+             (char/= #\: (ch-at line last-i))
+             (loop :for ch = (ch-at line i)
                    :while (< i last-i)
                    :while (not (or (alphanumericp ch) (char= ch #\/) (char= ch #\.)))
                    :do (incf non-alphanums) (incf i)
                    :finally (return (/= non-alphanums 0)))
              (loop :for j :downfrom (1- i) :to 0
-                   :for ch = (char line j)
+                   :for ch = (ch-at line j)
                    :while (char= ch #\Space)
                    :do (incf spaces)
                    :finally (return t))
@@ -69,11 +62,11 @@ exec ros -Q -- $0 "$@"
   "Detects that the line looks as a line from `find`-like output"
   (let ((last-i (1- (length line))))
     (and (> last-i 0)
-         (char/= #\: (char line last-i))
-         (or (find (char line 0) "./")
+         (char/= #\: (ch-at line last-i))
+         (or (find (ch-at line 0) "./")
              ;; Windows case for busybox (C:\...):
-             (and (> last-i 1) (alpha-char-p (char line 0))
-                  (char= #\: (char line 1)))))))
+             (and (> last-i 1) (alpha-char-p (ch-at line 0))
+                  (char= #\: (ch-at line 1)))))))
 
 
 
@@ -107,15 +100,33 @@ exec ros -Q -- $0 "$@"
   (let ((last-i (1- (length line))))
     (or (string= "" (trim-any-whitespaces line))
         (and (> last-i 0)
-             (find (char line 0) "./" :test #'char=)
-             (char= #\: (char line last-i)))
-        (and (> last-i 0)
-             (not (find (char line 0) *unicode-whitespace-chars* :test #'char=))
-             (char/= #\: (char line last-i))))))
+             (find (ch-at line 0) "./" :test #'char=)
+             (char= #\: (ch-at line last-i)))
+        (and (> last-i 0)  ;; TODO why last-i > 0 ? Maybe to do it once?
+             (not (find (ch-at line 0) *unicode-whitespace-chars* :test #'char=))
+             (char/= #\: (ch-at line last-i))))))
 
 (defun ls-1rl-line-det (line)
   ;; TODO
-  )
+  (let ((last-i (1- (length line)))
+        (total-str "total ")
+        (attrs 0) (i 0))
+    (or (and (starts-with-p line total-str) (> last-i (length total-str))
+             (digit-char-p (ch-at line (length total-str))))
+        (and
+         (loop :for ch = (ch-at line i)
+               :while (< i last-i)
+               :while (or (char= ch #\-) (char= ch #\r) (char= ch #\w) (char= ch #\x)
+                          (char= ch #\l) (char= ch #\b) (char= ch #\c) (char= ch #\p)
+                          (char= ch #\s) (char= ch #\D) (char= ch #\P) (char= ch #\n)
+                          (char= ch #\C) (char= ch #\M) (char= ch #\?) (char= ch #\S)
+                          (char= ch #\t) (char= ch #\T)
+                          (char= ch #\+) (char= ch #\.) (char= ch #\@))
+               :while (and (char/= ch #\Space) (char/= ch #\Tab))
+               :do (incf attrs) (incf i)
+               :finally (return (or (= attrs 10) (= attrs 11))))
+         (or (char= (ch-at line i) #\Space) (char= (ch-at line i) #\Tab))))))
+
 #|
 1. tree: starts with non-alphanum symbols (and ' ') longer than 1 - then, only
 alphanum symbols and '/' or '\' or ':' (OS depending)
