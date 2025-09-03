@@ -98,34 +98,65 @@ exec ros -Q -- $0 "$@"
 
 (defun ls-1r-line-det (line)  ;; XXX Must be ran after `ls-1rl-line-det`
   (let ((last-i (1- (length line))))
-    (or (string= "" (trim-any-whitespaces line))
-        (and (> last-i 0)
-             (find (ch-at line 0) "./" :test #'char=)
-             (char= #\: (ch-at line last-i)))
-        (and (> last-i 0)  ;; TODO why last-i > 0 ? Maybe to do it once?
-             (not (find (ch-at line 0) *unicode-whitespace-chars* :test #'char=))
-             (char/= #\: (ch-at line last-i))))))
+    (and (> last-i 0)
+         (or (string= "" (trim-any-whitespaces line))
+             (and (find (ch-at line 0) "./" :test #'char=)
+                  (char= #\: (ch-at line last-i)))
+             ;; TODO windows?
+             (and (not (find (ch-at line 0) *unicode-whitespace-chars* :test #'char=))
+                  (char/= #\: (ch-at line last-i)))))))
 
 (defun ls-1rl-line-det (line)
-  ;; TODO
-  (let ((last-i (1- (length line)))
-        (total-str "total ")
-        (attrs 0) (i 0))
-    (or (and (starts-with-p line total-str) (> last-i (length total-str))
-             (digit-char-p (ch-at line (length total-str))))
-        (and
-         (loop :for ch = (ch-at line i)
-               :while (< i last-i)
-               :while (or (char= ch #\-) (char= ch #\r) (char= ch #\w) (char= ch #\x)
-                          (char= ch #\l) (char= ch #\b) (char= ch #\c) (char= ch #\p)
-                          (char= ch #\s) (char= ch #\D) (char= ch #\P) (char= ch #\n)
-                          (char= ch #\C) (char= ch #\M) (char= ch #\?) (char= ch #\S)
-                          (char= ch #\t) (char= ch #\T)
-                          (char= ch #\+) (char= ch #\.) (char= ch #\@))
-               :while (and (char/= ch #\Space) (char/= ch #\Tab))
-               :do (incf attrs) (incf i)
-               :finally (return (or (= attrs 10) (= attrs 11))))
-         (or (char= (ch-at line i) #\Space) (char= (ch-at line i) #\Tab))))))
+  (let* ((last-i (1- (length line)))
+         (total-str "total ")
+         (file-delim (case (ch-at line last-i)
+                       (#\' #\')
+                       (#\" #\")
+                       (t #\Space)))
+         (attrs 0) (i 0) (filechars 0) (mtimechars 0))
+    (and (> last-i 0)
+             ;; TODO windows?
+         (or (and (starts-with-p line total-str) (> last-i (length total-str))
+                  (digit-char-p (ch-at line (length total-str))))
+             (and (find (ch-at line 0) "./" :test #'char=)
+                  (char= #\: (ch-at line last-i)))
+             (and
+              ;; 17 - minimum length with minimal column sizes and 1 space-delimiter:
+              (>= last-i 17)
+              (loop :for ch = (ch-at line i)
+                    :while (< i last-i)
+                    :while (or (char= ch #\-) (char= ch #\r) (char= ch #\w) (char= ch #\x)
+                               (char= ch #\l) (char= ch #\b) (char= ch #\c) (char= ch #\p)
+                               (char= ch #\s) (char= ch #\D) (char= ch #\P) (char= ch #\n)
+                               (char= ch #\C) (char= ch #\M) (char= ch #\?) (char= ch #\S)
+                               (char= ch #\t) (char= ch #\T)
+                               (char= ch #\+) (char= ch #\.) (char= ch #\@))
+                    :while (char/= ch #\Space)
+                    :do (incf attrs) (incf i)
+                    :finally (return (or (= attrs 10) (= attrs 11))))
+              (char= (ch-at line i) #\Space)
+              (loop :for j :downfrom last-i :to 0
+                    :for ch = (ch-at line j)
+                    :while (or (char/= ch file-delim) (= j last-i))
+                    :do (incf filechars)
+                    :finally
+                       (when
+                           ;; Files with spaces or '/" are quoted with "...'..." and
+                           ;; '..."...'. If file is not quoted, when we hit the space,
+                           ;; we counted file size correctly. But when we hit '/", we
+                           ;; counted the rightmost '/" and all file symbols, but not
+                           ;; the leftmost '/", to do it, we have to do yet another
+                           ;; iteration! So, when the exit-char hit by us is not space,
+                           ;; it is some quote-symbol, so increment filechars to treat
+                           ;; 'xxx' as 5 symbols, not 4
+                           (char/= ch #\Space) (incf filechars))
+                       (format t "'~A' (~C)~%" filechars file-delim)
+                       (return (> filechars 0)))
+              (loop :for j :downfrom (- last-i filechars 1) :to 0
+                    :for ch = (ch-at line j)
+                    :while (or (digit-char-p ch) (char= ch #\:))
+                    :do (incf mtimechars) ;; last column of mtime is HH:MM or YYYY
+                    :finally (return (or (= mtimechars 4) (= mtimechars 5)))))))))
 
 #|
 1. tree: starts with non-alphanum symbols (and ' ') longer than 1 - then, only
@@ -133,7 +164,8 @@ alphanum symbols and '/' or '\' or ':' (OS depending)
 
 2. find: no NL, no ':' at the end of lines
 
-3. ls -1R: NL, some lines have ':' at the end (but the next line after it - has not ':' at the end)
+3. ls -1R: NL, some lines have ':' at the end (but the next line after it - has not ':' at the end).
+Delimiters - spaces. NOT TABS.
 
 4. ls -1Rl: the same as 3rd but with additional columns in the front of lines without ':' at the end.
 Also it has (after ':'-lines) line as "total 12" (entries). The 1st field of lines-entries may start
