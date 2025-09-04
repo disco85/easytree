@@ -5,7 +5,7 @@ exec ros -Q -- $0 "$@"
 |#
 (progn ;;init forms
   (ros:ensure-asdf)
-  #+quicklisp(ql:quickload '(clingon cl-ppcre) :silent t)
+  #+quicklisp(ql:quickload '(clingon cl-ppcre fiveam) :silent t)
   )
 
 (defpackage :ros.script.easytree.3962885522
@@ -13,9 +13,10 @@ exec ros -Q -- $0 "$@"
 (in-package :ros.script.easytree.3962885522)
 
 
-;; (defun truly (x)
-;;   "Like Python's bool()"
-;;   (if x t nil))
+(defun truly (x)
+  "Like Python's bool()"
+  (if x t nil))
+
 
 (defun starts-with-p (string prefix &key case-insensitive)
   "Check that `string` starts with `prefix`"
@@ -95,6 +96,8 @@ exec ros -Q -- $0 "$@"
   "Like Python's str.strip()"
   (string-trim *unicode-whitespace-chars* string))
 
+;; TODO ../ in the beginning is also possible!!!
+;; ending can be @, =, etc...
 
 (defun ls-1r-line-det (line)  ;; XXX Must be ran after `ls-1rl-line-det`
   (let ((last-i (1- (length line))))
@@ -150,7 +153,7 @@ exec ros -Q -- $0 "$@"
                            ;; it is some quote-symbol, so increment filechars to treat
                            ;; 'xxx' as 5 symbols, not 4
                            (char/= ch #\Space) (incf filechars))
-                       (format t "'~A' (~C)~%" filechars file-delim)
+                       ;; (format t "'~A' (~C)~%" filechars file-delim)
                        (return (> filechars 0)))
               (loop :for j :downfrom (- last-i filechars 1) :to 0
                     :for ch = (ch-at line j)
@@ -237,7 +240,34 @@ with '-' (even more, like -rwx------ or --w-------)
     (nreverse results)))
 
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Tests ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(5am:def-suite :suite1 :description "EasyTree Test Suite")
+(5am:in-suite :suite1)
+(5am:test ls-1rl-line-det--test1
+          (5am:is (ls-1rl-line-det "-rw-r--r-- 1 me me 2545 Jul 28 20:32 file.lua")))
+(5am:test ls-1rl-line-det--test2
+          (5am:is (ls-1rl-line-det "-rw-r--r-- 1 me me 2545 Jul 28 20:32 'file.lua'")))
+(5am:test ls-1rl-line-det--test3
+          (5am:is (ls-1rl-line-det "-rw-r--r-- 1 me me 2545 Jul 28 2032 'file.lua'")))
+(5am:test ls-1rl-line-det--test4
+          (5am:is (ls-1rl-line-det "-rw-r--r-- 1 me me 2545 Jul 28 2032 \"file X ' lua\"")))
+(5am:test ls-1rl-line-det--test5
+          (5am:is (ls-1rl-line-det "total 12M")))
+(5am:test ls-1rl-line-det--test6
+          (5am:is (ls-1rl-line-det "/a/b:")))
+(5am:test ls-1rl-line-det--test7
+          (5am:is (ls-1rl-line-det "./a/b:")))
+(5am:test ls-1rl-line-det--test8
+          (5am:is (ls-1rl-line-det "../../a/b:")))
+(5am:test ls-1rl-line-det--test9
+          (5am:is-false (ls-1rl-line-det "")))
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun cli-test-handler (cmd)
+  (declare (ignorable cmd))
+  (uiop:symbol-call :fiveam :run! :suite1))
 
 (defun cli-convert-cmd-handler (cmd)
   (declare (ignorable cmd)))
@@ -271,6 +301,13 @@ with '-' (even more, like -rwx------ or --w-------)
     :long-name "prepend"
     :key :prepend)))
 
+(defun cli-test-cmd ()
+  (clingon:make-command
+   :name "test"
+   :usage "<no args>"
+   :description "Run tests"
+   :handler #'cli-test-handler))
+
 (defun cli-convert-cmd ()
   (clingon:make-command
    :name "convert"
@@ -291,7 +328,7 @@ with '-' (even more, like -rwx------ or --w-------)
    :version "0.1.0"
    :authors '("John Doe <john.doe@example.org>")
    :license "BSD 2-Clause"
-   :sub-commands (list (cli-convert-cmd))
+   :sub-commands (list (cli-convert-cmd) (cli-test-cmd))
    :handler (lambda (cmd)
               (format t "No known subcommand provided!~%~%")
               (clingon:print-usage cmd *standard-output*)
