@@ -288,6 +288,12 @@ with '-' (even more, like -rwx------ or --w-------)
 
 (5am:test ls-1r-line-det--test1
           (5am:is-false (ls-1r-line-det "drw-r--r-- 1 me me 2545 Jul 28 2032 xxx/")))
+(5am:test ls-1r-line-det--test2
+          (5am:is-false (ls-1r-line-det "")))
+(5am:test ls-1r-line-det--test3
+          (5am:is (ls-1r-line-det "test*")))
+(5am:test ls-1r-line-det--test4
+          (5am:is (ls-1r-line-det "test/")))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
