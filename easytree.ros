@@ -13,9 +13,13 @@ exec ros -Q -- $0 "$@"
 (in-package :ros.script.easytree.3962885522)
 
 
-(defun truly (x)
-  "Like Python's bool()"
-  (if x t nil))
+;; (defun truly (x)
+;;   "Like Python's bool()"
+;;   (if x t nil))
+
+(defun implies (a b)
+  "Implication: a -> b"
+  (or (not a) b))
 
 
 (defun starts-with-p (string prefix &key case-insensitive)
@@ -102,12 +106,20 @@ exec ros -Q -- $0 "$@"
 (defun ls-1r-line-det (line)  ;; XXX Must be ran after `ls-1rl-line-det`
   (let ((last-i (1- (length line))))
     (and (> last-i 0)
-         (or (string= "" (trim-any-whitespaces line))
-             (and (find (ch-at line 0) "./" :test #'char=)
-                  (char= #\: (ch-at line last-i)))
+         ;; If there are spaces, the line must start with ' or " (else: not our case, T)
+         (implies (find #\Space line :test #'char=) (case (ch-at line 0) (#\' t) (#\" t)))
+         (or (and (char= #\: (ch-at line last-i))
+                  (or (starts-with-p line "/")
+                      (starts-with-p line "./")
+                      (starts-with-p line "../")
+                      (starts-with-p line "'./")
+                      (starts-with-p line "\"./")
+                      (starts-with-p line "'../")
+                      (starts-with-p line "\"../")))
              ;; TODO windows?
              (and (not (find (ch-at line 0) *unicode-whitespace-chars* :test #'char=))
                   (char/= #\: (ch-at line last-i)))))))
+
 
 (defun ls-1rl-line-det (line)
   (let* ((last-i (1- (length line)))
@@ -121,8 +133,14 @@ exec ros -Q -- $0 "$@"
              ;; TODO windows?
          (or (and (starts-with-p line total-str) (> last-i (length total-str))
                   (digit-char-p (ch-at line (length total-str))))
-             (and (find (ch-at line 0) "./" :test #'char=)
-                  (char= #\: (ch-at line last-i)))
+             (and (char= #\: (ch-at line last-i))
+                  (or (starts-with-p line "/")
+                      (starts-with-p line "./")
+                      (starts-with-p line "../")
+                      (starts-with-p line "'./")
+                      (starts-with-p line "\"./")
+                      (starts-with-p line "'../")
+                      (starts-with-p line "\"../")))
              (and
               ;; 17 - minimum length with minimal column sizes and 1 space-delimiter:
               (>= last-i 17)
@@ -132,7 +150,7 @@ exec ros -Q -- $0 "$@"
                                (char= ch #\l) (char= ch #\b) (char= ch #\c) (char= ch #\p)
                                (char= ch #\s) (char= ch #\D) (char= ch #\P) (char= ch #\n)
                                (char= ch #\C) (char= ch #\M) (char= ch #\?) (char= ch #\S)
-                               (char= ch #\t) (char= ch #\T)
+                               (char= ch #\t) (char= ch #\T) (char= ch #\d)
                                (char= ch #\+) (char= ch #\.) (char= ch #\@))
                     :while (char/= ch #\Space)
                     :do (incf attrs) (incf i)
@@ -252,20 +270,29 @@ with '-' (even more, like -rwx------ or --w-------)
 (5am:test ls-1rl-line-det--test4
           (5am:is (ls-1rl-line-det "-rw-r--r-- 1 me me 2545 Jul 28 2032 \"file X ' lua\"")))
 (5am:test ls-1rl-line-det--test5
-          (5am:is (ls-1rl-line-det "total 12M")))
+          (5am:is (ls-1rl-line-det "drw-r--r-- 1 me me 2545 Jul 28 2032 xxx/")))
 (5am:test ls-1rl-line-det--test6
-          (5am:is (ls-1rl-line-det "/a/b:")))
+          (5am:is (ls-1rl-line-det "total 12M")))
 (5am:test ls-1rl-line-det--test7
-          (5am:is (ls-1rl-line-det "./a/b:")))
+          (5am:is (ls-1rl-line-det "/a/b:")))
 (5am:test ls-1rl-line-det--test8
-          (5am:is (ls-1rl-line-det "../../a/b:")))
+          (5am:is (ls-1rl-line-det "./a/b:")))
 (5am:test ls-1rl-line-det--test9
+          (5am:is (ls-1rl-line-det "../../a/b:")))
+(5am:test ls-1rl-line-det--test10
           (5am:is-false (ls-1rl-line-det "")))
+(5am:test ls-1rl-line-det--test11
+          (5am:is-false (ls-1rl-line-det "total ")))
+(5am:test ls-1rl-line-det--test12
+          (5am:is (ls-1rl-line-det "'./Linux Directory':")))
+
+(5am:test ls-1r-line-det--test1
+          (5am:is-false (ls-1r-line-det "drw-r--r-- 1 me me 2545 Jul 28 2032 xxx/")))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun cli-test-handler (cmd)
+(defun cli-tests-handler (cmd)
   (declare (ignorable cmd))
   (uiop:symbol-call :fiveam :run! :suite1))
 
@@ -301,12 +328,12 @@ with '-' (even more, like -rwx------ or --w-------)
     :long-name "prepend"
     :key :prepend)))
 
-(defun cli-test-cmd ()
+(defun cli-tests-cmd ()
   (clingon:make-command
-   :name "test"
+   :name "tests"
    :usage "<no args>"
    :description "Run tests"
-   :handler #'cli-test-handler))
+   :handler #'cli-tests-handler))
 
 (defun cli-convert-cmd ()
   (clingon:make-command
@@ -328,7 +355,7 @@ with '-' (even more, like -rwx------ or --w-------)
    :version "0.1.0"
    :authors '("John Doe <john.doe@example.org>")
    :license "BSD 2-Clause"
-   :sub-commands (list (cli-convert-cmd) (cli-test-cmd))
+   :sub-commands (list (cli-convert-cmd) (cli-tests-cmd))
    :handler (lambda (cmd)
               (format t "No known subcommand provided!~%~%")
               (clingon:print-usage cmd *standard-output*)
