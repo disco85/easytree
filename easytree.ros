@@ -302,6 +302,8 @@ with '-' (even more, like -rwx------ or --w-------)
           (5am:is (ls-1r-line-det "./a/b:")))
 (5am:test ls-1r-line-det--test9
           (5am:is (ls-1r-line-det "../../a/b:")))
+(5am:test ls-1r-line-det--test10
+          (5am:is (ls-1r-line-det "'xxx \" yyy'")))
 
 (5am:test tree-line-det--test1
           (5am:is (tree-line-det "├── DetectFormat.txt")))
@@ -313,6 +315,8 @@ with '-' (even more, like -rwx------ or --w-------)
           (5am:is (tree-line-det "└── xxx ' yyy")))
 (5am:test tree-line-det--test5
           (5am:is (tree-line-det "   |--Print Linux/")))
+(5am:test tree-line-det--test6
+          (5am:is (tree-line-det "|Print*")))
 
 (5am:test find-line-det--test1
           (5am:is (find-line-det "./logo_002.svg")))
