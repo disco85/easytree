@@ -5,7 +5,7 @@ exec ros -Q -- $0 "$@"
 |#
 (progn ;;init forms
   (ros:ensure-asdf)
-  #+quicklisp(ql:quickload '(clingon cl-ppcre fiveam) :silent t)
+  #+quicklisp(ql:quickload '(clingon cl-ppcre fiveam uiop) :silent t)
   )
 
 (defpackage :ros.script.easytree.3962885522
@@ -342,6 +342,43 @@ exec ros -Q -- $0 "$@"
                             "total 12M"
                             "drw-r--r-- 1 me me 2545 Jul 28 2032 xxx"
                             "'./aaa bbb':")))))
+(5am:test find-line-det--test3
+          (5am:is (eql 0 (det-format
+                          `(,#'ls-1rl-line-det
+                            ,#'ls-1r-line-det
+                            ,#'tree-line-det
+                            ,#'find-line-det)
+                          (uiop:split-string
+                           (uiop:run-program '("sh" "-c" "ls -1Rl ~|head -n 100")
+                                             :output :string
+                                             :error-output nil
+                                             :ignore-error-status t)
+                           :separator '(#\Newline))))))
+(5am:test find-line-det--test4
+          (5am:is (eql 1 (det-format
+                          `(,#'ls-1rl-line-det
+                            ,#'ls-1r-line-det
+                            ,#'tree-line-det
+                            ,#'find-line-det)
+                          (uiop:split-string
+                           (uiop:run-program '("sh" "-c" "ls -1R ~|head -n 100")
+                                             :output :string
+                                             :error-output nil
+                                             :ignore-error-status t)
+                           :separator '(#\Newline))))))
+(5am:test find-line-det--test5
+          (5am:is (eql 3 (det-format
+                          `(,#'ls-1rl-line-det
+                            ,#'ls-1r-line-det
+                            ,#'tree-line-det
+                            ,#'find-line-det)
+                          (uiop:split-string
+                                   (uiop:run-program '("sh" "-c" "find ~|head -n 100")
+                                                     :output :string
+                                                     :error-output nil
+                                                     :ignore-error-status t)
+                                   :separator '(#\Newline))))))
+
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
