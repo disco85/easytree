@@ -294,6 +294,23 @@ with '-' (even more, like -rwx------ or --w-------)
           (5am:is (ls-1r-line-det "test*")))
 (5am:test ls-1r-line-det--test4
           (5am:is (ls-1r-line-det "test/")))
+(5am:test ls-1r-line-det--test7
+          (5am:is (ls-1r-line-det "/a/b:")))
+(5am:test ls-1r-line-det--test8
+          (5am:is (ls-1r-line-det "./a/b:")))
+(5am:test ls-1r-line-det--test9
+          (5am:is (ls-1r-line-det "../../a/b:")))
+
+(5am:test tree-line-det--test1
+          (5am:is (tree-line-det "├── DetectFormat.txt")))
+(5am:test tree-line-det--test2
+          (5am:is (tree-line-det "│   ├── ascetic.min.css")))
+(5am:test tree-line-det--test3
+          (5am:is (tree-line-det "│   ├── mydir/")))
+(5am:test tree-line-det--test4
+          (5am:is (tree-line-det "└── xxx ' yyy")))
+(5am:test tree-line-det--test5
+          (5am:is (tree-line-det "   |--Print Linux/")))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
