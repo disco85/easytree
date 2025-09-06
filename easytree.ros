@@ -68,11 +68,13 @@ exec ros -Q -- $0 "$@"
   (let ((last-i (1- (length line))))
     (and (> last-i 0)
          (char/= #\: (ch-at line last-i))
-         (or (find (ch-at line 0) "./")
-             ;; Windows case for busybox (C:\...):
-             (and (> last-i 1) (alpha-char-p (ch-at line 0))
-                  (char= #\: (ch-at line 1)))))))
-
+                  (or (starts-with-p line "/")
+                      (starts-with-p line "./")
+                      (starts-with-p line "../")
+                      (starts-with-p line "'./")
+                      (starts-with-p line "\"./")
+                      (starts-with-p line "'../")
+                      (starts-with-p line "\"../")))))
 
 
 (defparameter *unicode-whitespace-chars*
@@ -311,6 +313,15 @@ with '-' (even more, like -rwx------ or --w-------)
           (5am:is (tree-line-det "└── xxx ' yyy")))
 (5am:test tree-line-det--test5
           (5am:is (tree-line-det "   |--Print Linux/")))
+
+(5am:test find-line-det--test1
+          (5am:is (find-line-det "./logo_002.svg")))
+(5am:test find-line-det--test2
+          (5am:is (find-line-det "../logo_002.svg")))
+(5am:test find-line-det--test3
+          (5am:is (find-line-det "../../logo_002.svg")))
+(5am:test find-line-det--test4
+          (5am:is (find-line-det "/etc")))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
