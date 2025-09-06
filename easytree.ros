@@ -181,19 +181,16 @@ exec ros -Q -- $0 "$@"
                     :do (incf mtimechars) ;; last column of mtime is HH:MM or YYYY
                     :finally (return (or (= mtimechars 4) (= mtimechars 5)))))))))
 
-#|
-1. tree: starts with non-alphanum symbols (and ' ') longer than 1 - then, only
-alphanum symbols and '/' or '\' or ':' (OS depending)
 
-2. find: no NL, no ':' at the end of lines
-
-3. ls -1R: NL, some lines have ':' at the end (but the next line after it - has not ':' at the end).
-Delimiters - spaces. NOT TABS.
-
-4. ls -1Rl: the same as 3rd but with additional columns in the front of lines without ':' at the end.
-Also it has (after ':'-lines) line as "total 12" (entries). The 1st field of lines-entries may start
-with '-' (even more, like -rwx------ or --w-------)
-|#
+(defun det-format (funcs lines)
+  "Finds the function (among `funcs`, returned as an index) which is mostly satisfied
+  on `lines` (at least once! Else - returns nil)"
+  (let* ((counts (mapcar (lambda (fn)
+                           (count-if fn lines))
+                         funcs))
+         (max-count (apply #'max counts)))
+    (and (> max-count 0)
+         (position max-count counts))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Variables ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -326,6 +323,25 @@ with '-' (even more, like -rwx------ or --w-------)
           (5am:is (find-line-det "../../logo_002.svg")))
 (5am:test find-line-det--test4
           (5am:is (find-line-det "/etc")))
+
+(5am:test det-format--test1
+          (5am:is (eql 2 (det-format
+                          `(,#'ls-1rl-line-det
+                            ,#'ls-1r-line-det
+                            ,#'tree-line-det
+                            ,#'find-line-det)
+                          '("|  |--Print Linux/"
+                            "|Print/")))))
+(5am:test det-format--test2
+          (5am:is (eql 0 (det-format
+                          `(,#'ls-1rl-line-det
+                            ,#'ls-1r-line-det
+                            ,#'tree-line-det
+                            ,#'find-line-det)
+                          '(""
+                            "total 12M"
+                            "drw-r--r-- 1 me me 2545 Jul 28 2032 xxx"
+                            "'./aaa bbb':")))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
