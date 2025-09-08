@@ -204,21 +204,12 @@ exec ros -Q -- $0 "$@"
   "Returns :uniq-features from a determination result, which usually is
   NIL or '((:uniq-features) <int>)...) or something else. If it cannot
   be got, then it returns `default` (NIL or passed)''"
-  (let ((p (assoc :uniq-features det-result)))
-    (if p (cadr p) default)))
+  (let ((p (and (listp det-result)
+                (assoc :uniq-features (remove-if-not #'consp det-result)))))
+    (if p (cdr p) default)))
+
 
 (defun det-format (funcs lines)
-  "Finds the function (among `funcs`, returned as an index) which is mostly satisfied
-  on `lines` (at least once! Else - returns nil)"
-  (let* ((aggregate-func-lines-results
-           (lambda (acc e)
-             (if e
-                 (list (1+ (car acc)) (+ (get-uniq-features e 0) (cadr acc)))
-                 acc)))
-         (funcs-over-lines-results (mapcar (lambda (fn) (mapcar fn lines)) funcs)))
-    funcs-over-lines-results))
-
-(defun det-format-x (funcs lines)
   "Finds the function (among `funcs`, returned as an index) which is mostly satisfied
   on `lines` (at least once! Else - returns nil)"
   (let* ((aggregate-func-lines-results
@@ -232,6 +223,7 @@ exec ros -Q -- $0 "$@"
                                             lines-results
                                             :initial-value (list 0 0)))
                                   funcs-over-lines-results))
+         ;; just enumerated (0 ...) (1 ...)... :
          (funcs-results-1 (loop :for e :in funcs-results-0
                                 :for i :from 0
                                 :collect (cons i e)))
@@ -242,6 +234,7 @@ exec ros -Q -- $0 "$@"
                                           (> (cadr a) (cadr b)))))
                                :key #'cdr)))
     (and funcs lines (caar sorted-by-hits))))
+
 
   ;; (let* ((funcs-hits (mapcar (lambda (fn)
   ;;                              (count-if fn lines))
@@ -385,6 +378,14 @@ exec ros -Q -- $0 "$@"
           (5am:is (find-line-det "../../logo_002.svg")))
 (5am:test find-line-det--test4
           (5am:is (find-line-det "/etc")))
+(5am:test find-line-det--test5
+          (5am:is (every #'find-line-det (uiop:split-string
+                                          (trim-any-whitespaces
+                                           (uiop:run-program '("sh" "-c" "find ~|head -n 100")
+                                                             :output :string
+                                                             :error-output nil
+                                                             :ignore-error-status t))
+                                          :separator '(#\Newline)))))
 
 (5am:test det-format--test1
           (5am:is (eql 2 (det-format
@@ -411,10 +412,11 @@ exec ros -Q -- $0 "$@"
                             ,#'tree-line-det
                             ,#'find-line-det)
                           (uiop:split-string
-                           (uiop:run-program '("sh" "-c" "ls -1Rl ~|head -n 100")
-                                             :output :string
-                                             :error-output nil
-                                             :ignore-error-status t)
+                           (trim-any-whitespaces
+                            (uiop:run-program '("sh" "-c" "ls -1Rl ~|head -n 100")
+                                              :output :string
+                                              :error-output nil
+                                              :ignore-error-status t))
                            :separator '(#\Newline))))))
 (5am:test det-format--test4
           (5am:is (eql 1 (det-format
@@ -423,10 +425,11 @@ exec ros -Q -- $0 "$@"
                             ,#'tree-line-det
                             ,#'find-line-det)
                           (uiop:split-string
-                           (uiop:run-program '("sh" "-c" "ls -1R ~|head -n 100")
-                                             :output :string
-                                             :error-output nil
-                                             :ignore-error-status t)
+                           (trim-any-whitespaces
+                            (uiop:run-program '("sh" "-c" "ls -1R ~|head -n 100")
+                                              :output :string
+                                              :error-output nil
+                                              :ignore-error-status t))
                            :separator '(#\Newline))))))
 (5am:test det-format--test5
           (5am:is (eql 3 (det-format
@@ -435,10 +438,11 @@ exec ros -Q -- $0 "$@"
                             ,#'tree-line-det
                             ,#'find-line-det)
                           (uiop:split-string
-                                   (uiop:run-program '("sh" "-c" "find ~|head -n 100")
-                                                     :output :string
-                                                     :error-output nil
-                                                     :ignore-error-status t)
+                                   (trim-any-whitespaces
+                                    (uiop:run-program '("sh" "-c" "find ~|head -n 100")
+                                                      :output :string
+                                                      :error-output nil
+                                                      :ignore-error-status t))
                                    :separator '(#\Newline))))))
 
 
