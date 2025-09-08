@@ -13,6 +13,9 @@ exec ros -Q -- $0 "$@"
 (in-package :ros.script.easytree.3962885522)
 
 
+(defun dbg (s x) (format t "*** TRACE[~A]: ~S~% ***" s x) x)
+
+
 ;; (defun truly (x)
 ;;   "Like Python's bool()"
 ;;   (if x t nil))
@@ -40,6 +43,8 @@ exec ros -Q -- $0 "$@"
 ;; +-----file
 ;; +-----  file  <- all lines will start with the same spacing policy
 
+;; TODO *-det must match only unique features, so `find .` will not be recognized as
+;; ls. But what should match "/aaa/bbb:" then? ls -1Rl or ls -1R ?
 
 (defun tree-line-det (line)
   "Detects that the line looks as a line from `tree`-like output. Returns
@@ -50,7 +55,8 @@ exec ros -Q -- $0 "$@"
              (char/= #\: (ch-at line last-i))
              (loop :for ch = (ch-at line i)
                    :while (< i last-i)
-                   :while (not (or (alphanumericp ch) (char= ch #\/) (char= ch #\.)))
+                   :while (not (or (alphanumericp ch) (char= ch #\/) (char= ch #\.)
+                                   (char= ch #\') (char= ch #\")))
                    :do (incf non-alphanums) (incf i)
                    :finally (return (/= non-alphanums 0)))
              (loop :for j :downfrom (1- i) :to 0
@@ -106,21 +112,28 @@ exec ros -Q -- $0 "$@"
 ;; ending can be @, =, etc...
 
 (defun ls-1r-line-det (line)  ;; XXX Must be ran after `ls-1rl-line-det`
-  (let ((last-i (1- (length line))))
-    (and (> last-i 0)
-         ;; If there are spaces, the line must start with ' or " (else: not our case, T)
-         (implies (find #\Space line :test #'char=) (case (ch-at line 0) (#\' t) (#\" t)))
-         (or (and (char= #\: (ch-at line last-i))
-                  (or (starts-with-p line "/")
-                      (starts-with-p line "./")
-                      (starts-with-p line "../")
-                      (starts-with-p line "'./")
-                      (starts-with-p line "\"./")
-                      (starts-with-p line "'../")
-                      (starts-with-p line "\"../")))
-             ;; TODO windows?
-             (and (not (find (ch-at line 0) *unicode-whitespace-chars* :test #'char=))
-                  (char/= #\: (ch-at line last-i)))))))
+  (let ((last-i (1- (length line)))
+        (uniq-features 0))
+    (when
+        (or
+         (when (string= "" (trim-any-whitespaces line)) (incf uniq-features))
+         (and (> last-i 0)
+              ;; If there are spaces, the line must start with ' or " (else: not our case, T)
+              (implies (find #\Space line :test #'char=) (case (ch-at line 0) (#\' t) (#\" t)))
+              (case (ch-at line 0)
+                ((#\' #\" #\/ #\.) t)
+                (t (alphanumericp (ch-at line 0))))
+              (or (and (char= #\: (ch-at line last-i))
+                       (or (starts-with-p line "/")
+                           (starts-with-p line "./")
+                           (starts-with-p line "../")
+                           (starts-with-p line "'./")
+                           (starts-with-p line "\"./")
+                           (starts-with-p line "'../")
+                           (starts-with-p line "\"../")))
+                  ;; TODO windows?
+                  (char/= #\: (ch-at line last-i)))))
+      (list (cons :uniq-features uniq-features)))))
 
 
 (defun ls-1rl-line-det (line)
@@ -130,67 +143,112 @@ exec ros -Q -- $0 "$@"
                        (#\' #\')
                        (#\" #\")
                        (t #\Space)))
-         (attrs 0) (i 0) (filechars 0) (mtimechars 0))
-    (and (> last-i 0)
+         (attrs 0) (i 0) (filechars 0) (mtimechars 0)
+         (uniq-features 0))
+    (when
+        (and (> last-i 0)
              ;; TODO windows?
-         (or (and (starts-with-p line total-str) (> last-i (length total-str))
-                  (digit-char-p (ch-at line (length total-str))))
-             (and (char= #\: (ch-at line last-i))
-                  (or (starts-with-p line "/")
-                      (starts-with-p line "./")
-                      (starts-with-p line "../")
-                      (starts-with-p line "'./")
-                      (starts-with-p line "\"./")
-                      (starts-with-p line "'../")
-                      (starts-with-p line "\"../")))
-             (and
-              ;; 17 - minimum length with minimal column sizes and 1 space-delimiter:
-              (>= last-i 17)
-              (loop :for ch = (ch-at line i)
-                    :while (< i last-i)
-                    :while (or (char= ch #\-) (char= ch #\r) (char= ch #\w) (char= ch #\x)
-                               (char= ch #\l) (char= ch #\b) (char= ch #\c) (char= ch #\p)
-                               (char= ch #\s) (char= ch #\D) (char= ch #\P) (char= ch #\n)
-                               (char= ch #\C) (char= ch #\M) (char= ch #\?) (char= ch #\S)
-                               (char= ch #\t) (char= ch #\T) (char= ch #\d)
-                               (char= ch #\+) (char= ch #\.) (char= ch #\@))
-                    :while (char/= ch #\Space)
-                    :do (incf attrs) (incf i)
-                    :finally (return (or (= attrs 10) (= attrs 11))))
-              (char= (ch-at line i) #\Space)
-              (loop :for j :downfrom last-i :to 0
-                    :for ch = (ch-at line j)
-                    :while (or (char/= ch file-delim) (= j last-i))
-                    :do (incf filechars)
-                    :finally
-                       (when
-                           ;; Files with spaces or '/" are quoted with "...'..." and
-                           ;; '..."...'. If file is not quoted, when we hit the space,
-                           ;; we counted file size correctly. But when we hit '/", we
-                           ;; counted the rightmost '/" and all file symbols, but not
-                           ;; the leftmost '/", to do it, we have to do yet another
-                           ;; iteration! So, when the exit-char hit by us is not space,
-                           ;; it is some quote-symbol, so increment filechars to treat
-                           ;; 'xxx' as 5 symbols, not 4
-                           (char/= ch #\Space) (incf filechars))
-                       ;; (format t "'~A' (~C)~%" filechars file-delim)
-                       (return (> filechars 0)))
-              (loop :for j :downfrom (- last-i filechars 1) :to 0
-                    :for ch = (ch-at line j)
-                    :while (or (digit-char-p ch) (char= ch #\:))
-                    :do (incf mtimechars) ;; last column of mtime is HH:MM or YYYY
-                    :finally (return (or (= mtimechars 4) (= mtimechars 5)))))))))
+             (or (and (starts-with-p line total-str) (> last-i (length total-str))
+                      (digit-char-p (ch-at line (length total-str))))
+                 (and (char= #\: (ch-at line last-i))
+                      (or (starts-with-p line "/")
+                          (starts-with-p line "./")
+                          (starts-with-p line "../")
+                          (starts-with-p line "'./")
+                          (starts-with-p line "\"./")
+                          (starts-with-p line "'../")
+                          (starts-with-p line "\"../")))
+                 (when
+                     (and
+                      ;; 17 - minimum length with minimal column sizes and 1 space-delimiter:
+                      (>= last-i 17)
+                      (loop :for ch = (ch-at line i)
+                            :while (< i last-i)
+                            :while (or (char= ch #\-) (char= ch #\r) (char= ch #\w) (char= ch #\x)
+                                       (char= ch #\l) (char= ch #\b) (char= ch #\c) (char= ch #\p)
+                                       (char= ch #\s) (char= ch #\D) (char= ch #\P) (char= ch #\n)
+                                       (char= ch #\C) (char= ch #\M) (char= ch #\?) (char= ch #\S)
+                                       (char= ch #\t) (char= ch #\T) (char= ch #\d)
+                                       (char= ch #\+) (char= ch #\.) (char= ch #\@))
+                            :while (char/= ch #\Space)
+                            :do (incf attrs) (incf i)
+                            :finally (return (or (= attrs 10) (= attrs 11))))
+                      (char= (ch-at line i) #\Space)
+                      (loop :for j :downfrom last-i :to 0
+                            :for ch = (ch-at line j)
+                            :while (or (char/= ch file-delim) (= j last-i))
+                            :do (incf filechars)
+                            :finally
+                               (when
+                                   ;; Files with spaces or '/" are quoted with "...'..." and
+                                   ;; '..."...'. If file is not quoted, when we hit the space,
+                                   ;; we counted file size correctly. But when we hit '/", we
+                                   ;; counted the rightmost '/" and all file symbols, but not
+                                   ;; the leftmost '/", to do it, we have to do yet another
+                                   ;; iteration! So, when the exit-char hit by us is not space,
+                                   ;; it is some quote-symbol, so increment filechars to treat
+                                   ;; 'xxx' as 5 symbols, not 4
+                                   (char/= ch #\Space) (incf filechars))
+                               ;; (format t "'~A' (~C)~%" filechars file-delim)
+                               (return (> filechars 0)))
+                      (loop :for j :downfrom (- last-i filechars 1) :to 0
+                            :for ch = (ch-at line j)
+                            :while (or (digit-char-p ch) (char= ch #\:))
+                            :do (incf mtimechars) ;; last column of mtime is HH:MM or YYYY
+                            :finally (return (or (= mtimechars 4) (= mtimechars 5)))))
+                   (incf uniq-features 1))))
+      (list (cons :uniq-features uniq-features)))))
 
+
+(defun get-uniq-features (det-result &optional default)
+  "Returns :uniq-features from a determination result, which usually is
+  NIL or '((:uniq-features) <int>)...) or something else. If it cannot
+  be got, then it returns `default` (NIL or passed)''"
+  (let ((p (assoc :uniq-features det-result)))
+    (if p (cadr p) default)))
 
 (defun det-format (funcs lines)
   "Finds the function (among `funcs`, returned as an index) which is mostly satisfied
   on `lines` (at least once! Else - returns nil)"
-  (let* ((counts (mapcar (lambda (fn)
-                           (count-if fn lines))
-                         funcs))
-         (max-count (apply #'max counts)))
-    (and (> max-count 0)
-         (position max-count counts))))
+  (let* ((aggregate-func-lines-results
+           (lambda (acc e)
+             (if e
+                 (list (1+ (car acc)) (+ (get-uniq-features e 0) (cadr acc)))
+                 acc)))
+         (funcs-over-lines-results (mapcar (lambda (fn) (mapcar fn lines)) funcs)))
+    funcs-over-lines-results))
+
+(defun det-format-x (funcs lines)
+  "Finds the function (among `funcs`, returned as an index) which is mostly satisfied
+  on `lines` (at least once! Else - returns nil)"
+  (let* ((aggregate-func-lines-results
+           (lambda (acc e)
+             (if e
+                 (list (1+ (car acc)) (+ (get-uniq-features e 0) (cadr acc)))
+                 acc)))
+         (funcs-over-lines-results (mapcar (lambda (fn) (mapcar fn lines)) funcs))
+         (funcs-results-0 (mapcar (lambda (lines-results)
+                                    (reduce aggregate-func-lines-results
+                                            lines-results
+                                            :initial-value (list 0 0)))
+                                  funcs-over-lines-results))
+         (funcs-results-1 (loop :for e :in funcs-results-0
+                                :for i :from 0
+                                :collect (cons i e)))
+         (sorted-by-hits (sort funcs-results-1
+                               (lambda (a b)
+                                 (or (> (car a) (car b))
+                                     (and (= (car a) (car b))
+                                          (> (cadr a) (cadr b)))))
+                               :key #'cdr)))
+    (and funcs lines (caar sorted-by-hits))))
+
+  ;; (let* ((funcs-hits (mapcar (lambda (fn)
+  ;;                              (count-if fn lines))
+  ;;                            funcs))
+  ;;        (max-hits-num (apply #'max funcs-hits)))
+  ;;   (and (> max-hits-num 0)
+  ;;        (position max-hits-num funcs-hits))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Variables ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -288,7 +346,7 @@ exec ros -Q -- $0 "$@"
 (5am:test ls-1r-line-det--test1
           (5am:is-false (ls-1r-line-det "drw-r--r-- 1 me me 2545 Jul 28 2032 xxx/")))
 (5am:test ls-1r-line-det--test2
-          (5am:is-false (ls-1r-line-det "")))
+          (5am:is (ls-1r-line-det "")))
 (5am:test ls-1r-line-det--test3
           (5am:is (ls-1r-line-det "test*")))
 (5am:test ls-1r-line-det--test4
@@ -301,6 +359,8 @@ exec ros -Q -- $0 "$@"
           (5am:is (ls-1r-line-det "../../a/b:")))
 (5am:test ls-1r-line-det--test10
           (5am:is (ls-1r-line-det "'xxx \" yyy'")))
+(5am:test ls-1r-line-det--test11
+          (5am:is-false (ls-1r-line-det "|Some")))
 
 (5am:test tree-line-det--test1
           (5am:is (tree-line-det "├── DetectFormat.txt")))
@@ -314,6 +374,8 @@ exec ros -Q -- $0 "$@"
           (5am:is (tree-line-det "   |--Print Linux/")))
 (5am:test tree-line-det--test6
           (5am:is (tree-line-det "|Print*")))
+;; (5am:test tree-line-det--test7
+;;           (5am:is (tree-line-det "Print")))
 
 (5am:test find-line-det--test1
           (5am:is (find-line-det "./logo_002.svg")))
@@ -342,7 +404,7 @@ exec ros -Q -- $0 "$@"
                             "total 12M"
                             "drw-r--r-- 1 me me 2545 Jul 28 2032 xxx"
                             "'./aaa bbb':")))))
-(5am:test find-line-det--test3
+(5am:test det-format--test3
           (5am:is (eql 0 (det-format
                           `(,#'ls-1rl-line-det
                             ,#'ls-1r-line-det
@@ -354,7 +416,7 @@ exec ros -Q -- $0 "$@"
                                              :error-output nil
                                              :ignore-error-status t)
                            :separator '(#\Newline))))))
-(5am:test find-line-det--test4
+(5am:test det-format--test4
           (5am:is (eql 1 (det-format
                           `(,#'ls-1rl-line-det
                             ,#'ls-1r-line-det
@@ -366,7 +428,7 @@ exec ros -Q -- $0 "$@"
                                              :error-output nil
                                              :ignore-error-status t)
                            :separator '(#\Newline))))))
-(5am:test find-line-det--test5
+(5am:test det-format--test5
           (5am:is (eql 3 (det-format
                           `(,#'ls-1rl-line-det
                             ,#'ls-1r-line-det
