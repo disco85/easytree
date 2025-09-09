@@ -446,6 +446,19 @@ exec ros -Q -- $0 "$@"
                                                       :error-output nil
                                                       :ignore-error-status t))
                                    :separator '(#\Newline))))))
+(5am:test det-format--test6
+          (5am:is (eql 2 (det-format
+                          `(,#'ls-1rl-line-det
+                            ,#'ls-1r-line-det
+                            ,#'tree-line-det
+                            ,#'find-line-det)
+                          (uiop:split-string
+                                   (trim-any-whitespaces
+                                    (uiop:run-program '("sh" "-c" "tree ~|head -n 100")
+                                                      :output :string
+                                                      :error-output nil
+                                                      :ignore-error-status t))
+                                   :separator '(#\Newline))))))
 
 
 
