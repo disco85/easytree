@@ -72,15 +72,17 @@ exec ros -Q -- $0 "$@"
 (defun find-line-det (line)
   "Detects that the line looks as a line from `find`-like output"
   (let ((last-i (1- (length line))))
-    (and (> last-i 0)
-         (char/= #\: (ch-at line last-i))
-                  (or (starts-with-p line "/")
-                      (starts-with-p line "./")
-                      (starts-with-p line "../")
-                      (starts-with-p line "'./")
-                      (starts-with-p line "\"./")
-                      (starts-with-p line "'../")
-                      (starts-with-p line "\"../")))))
+    (when
+        (and (> last-i 0)
+             (char/= #\: (ch-at line last-i))
+             (or (starts-with-p line "/")
+                 (starts-with-p line "./")
+                 (starts-with-p line "../")
+                 (starts-with-p line "'./")
+                 (starts-with-p line "\"./")
+                 (starts-with-p line "'../")
+                 (starts-with-p line "\"../")))
+      (list (cons :uniq-features 1)))))
 
 
 (defparameter *unicode-whitespace-chars*
