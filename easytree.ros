@@ -36,27 +36,56 @@ exec ros -Q -- $0 "$@"
 (defun pop-items (items &key after within key test)
   "Pops items after chosen one including it `:within item` or without
 it `:after item`. Finding of the item use :test or/and :key criteria
-like standard member/find functions do it"
+like standard member/find functions do it. If the item cannot be found,
+`items` are returned. The second returned value is NIL then. Else,
+`items` without poped items are returned. The second value is T,
+check it with:
+(multiple-value-bind (new-items were-changed) (pop-items '(1 2 3) :after 2 :test #'=)
+"
   (let* ((pivot-item (or after within))
          (member-extra-args (append (when key  (list :key key))
                                     (when test (list :test test))))
-         (items-before-pivot-item
+         (remains  ;; [1 2 3] 4 5  <- pop-ed are in the head. Push - to the head too
            (apply #'member pivot-item items member-extra-args)))
     (cond
-      (after items-before-pivot-item)
-      (within (cdr items-before-pivot-item)))))
+      ((null remains) (values items nil))
+      (after (values remains t))
+      (within (values (cdr remains) t)))))
 
-(defmethod save-state ((scanner <scanner>) (astate <scanner-state>))
+(defmethod save-state ((scanner <scanner>) (state <scanner-state>))
   "Saves/pushs a state in a scanner"
-  (push astate (<scanner>-saved-states scanner)))
+  (push state (<scanner>-saved-states scanner)))
 
-(defmethod restore-state ((scanner <scanner>) (to-state scanner-state))
-  (let ((new-states (member to-state (<scanner>-saved-states scanner)
-                            :test #'eq)))
-    (when new-states
-      (setf (<scanner>-saved-states scanner) new-states))))
+;; FIXME reuse thid method in another methods
+(defmethod restore-states ((scanner <scanner>) (to-state <scanner-state>)
+                           &key before-this-state)
+  (let ((pop-items-extra-args (if before-this-state
+                                  (list :within to-state :test #'eq)
+                                  (list :after to-state :test #'eq))))
+    (multiple-value-bind
+          (new-states states-were-changed) (apply #'pop-items
+                                                  (<scanner>-saved-states scanner)
+                                                  pop-items-extra-args)
+      (when states-were-changed
+        (if new-states
+          (progn
+            (setf (<scanner>-saved-states scanner) new-states)
+            (setf (<scanner>-pos scanner) (<scanner-state>-pos (car new-states))))
+          (progn
+            (setf (<scanner>-saved-states scanner) nil) ;; new-state is nil but anyway :)
+            (setf (<scanner>-pos scanner) 0)))))))
 
-(defmethod restore-state ((scanner <scanner>) (to-state string))
+  ;; (let ((remains (case (car to-state)
+  ;;                  ('after (pop-items (<scanner>-saved-states scanner)
+  ;;                                     :after (cdr to-state)
+  ;;                                     :test #'eq))
+  ;;                  ('within (pop-items (<scanner>-saved-states scanner)
+  ;;                                      :within (cdr to-state)
+  ;;                                      :test #'eq)))))
+  ;;   (when new-states
+  ;;     (setf (<scanner>-saved-states scanner) new-states))))
+
+(defmethod restore-states ((scanner <scanner>) (to-state string))
   (let ((found-state (find to-state (<scanner>-saved-states scanner)
                            :key #'<scanner-state>-id
                            :eq #'string=)))
@@ -70,7 +99,7 @@ like standard member/find functions do it"
        (<scanner>-pos scanner) (<scanner-state>-pos found-state))
       found-state)))
 
-(defmethod restore-state ((scanner <scanner>) (to-state null))
+(defmethod restore-states ((scanner <scanner>) (to-state null))
   (let ((last-state (pop (<scanner>-saved-states scanner))))
     (setf (<scanner>-pos scanner) (<scanner-state>-pos last-state))
     last-state))
