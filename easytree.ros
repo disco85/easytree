@@ -16,6 +16,66 @@ exec ros -Q -- $0 "$@"
 (defun dbg (s x) (format t "*** TRACE[~A]: ~S~% ***" s x) x)
 
 
+
+(defstruct <scanner-state> ;;(:conc-name <scanner-state>-))
+  "The state of the scanner, it can be saved then rejected (for backtracking)"
+  (pos 0 :type (integer 0 *))
+  result
+  (id "" :type string))
+
+(defclass <scanner> ()
+    ((pos
+      :initform 0
+      :accessor <scanner>-pos
+      :documentation "Cursor")
+     (saved-states
+      :initform nil
+      :accessor <scanner>-saved-states
+      :documentation "Stack of saved positions and intermediate results, pop allows backtracking")))
+
+(defun pop-items (items &key after within key test)
+  "Pops items after chosen one including it `:within item` or without
+it `:after item`. Finding of the item use :test or/and :key criteria
+like standard member/find functions do it"
+  (let* ((pivot-item (or after within))
+         (member-extra-args (append (when key  (list :key key))
+                                    (when test (list :test test))))
+         (items-before-pivot-item
+           (apply #'member pivot-item items member-extra-args)))
+    (cond
+      (after items-before-pivot-item)
+      (within (cdr items-before-pivot-item)))))
+
+(defmethod save-state ((scanner <scanner>) (astate <scanner-state>))
+  "Saves/pushs a state in a scanner"
+  (push astate (<scanner>-saved-states scanner)))
+
+(defmethod restore-state ((scanner <scanner>) (to-state scanner-state))
+  (let ((new-states (member to-state (<scanner>-saved-states scanner)
+                            :test #'eq)))
+    (when new-states
+      (setf (<scanner>-saved-states scanner) new-states))))
+
+(defmethod restore-state ((scanner <scanner>) (to-state string))
+  (let ((found-state (find to-state (<scanner>-saved-states scanner)
+                           :key #'<scanner-state>-id
+                           :eq #'string=)))
+    (when found-state
+      (setf
+       ;; (member ..) returns the tail of stack from `found-state`, `saved-states` will
+       ;; keep now only them:
+       (<scanner>-saved-states scanner) (member found-state
+                                                (<scanner>-saved-states scanner)
+                                                :test #'eq)
+       (<scanner>-pos scanner) (<scanner-state>-pos found-state))
+      found-state)))
+
+(defmethod restore-state ((scanner <scanner>) (to-state null))
+  (let ((last-state (pop (<scanner>-saved-states scanner))))
+    (setf (<scanner>-pos scanner) (<scanner-state>-pos last-state))
+    last-state))
+
+
 ;; (defun truly (x)
 ;;   "Like Python's bool()"
 ;;   (if x t nil))
@@ -206,8 +266,12 @@ exec ros -Q -- $0 "$@"
   "Returns :uniq-features from a determination result, which usually is
   NIL or '((:uniq-features) <int>)...) or something else. If it cannot
   be got, then it returns `default` (NIL or passed)''"
-  (let ((p (and (listp det-result)
-                (assoc :uniq-features (remove-if-not #'consp det-result)))))
+  (safe-assoc det-result :uniq-features :default default))
+
+
+(defun safe-assoc (pairs kw &key default)
+  (let ((p (and (listp pairs)
+                (assoc kw (remove-if-not #'consp pairs)))))
     (if p (cdr p) default)))
 
 
