@@ -5,7 +5,7 @@ exec ros -Q -- $0 "$@"
 |#
 (progn ;;init forms
   (ros:ensure-asdf)
-  #+quicklisp(ql:quickload '(clingon cl-ppcre fiveam uiop) :silent t)
+  #+quicklisp(ql:quickload '(clingon cl-ppcre sijo-doctest uiop parcom) :silent t)
   )
 
 (defpackage :ros.script.easytree.3962885522
@@ -40,7 +40,15 @@ like standard member/find functions do it. If the item cannot be found,
 `items` are returned. The second returned value is NIL then. Else,
 `items` without poped items are returned. The second value is T,
 check it with:
-(multiple-value-bind (new-items were-changed) (pop-items '(1 2 3) :after 2 :test #'=)
+
+>> (multiple-value-list (pop-items '(1 2 3) :after 2 :test #'=))
+'((2 3) t)
+>> (multiple-value-list (pop-items '(1 2 3) :within 2 :test #'=))
+'((3) t)
+>> (multiple-value-list (pop-items '(1 2 3) :within 20 :test #'=))
+'((1 2 3) nil)
+>> (multiple-value-list (pop-items '(1 2 3) :within 3 :test #'=))
+'(nil t)
 "
   (let* ((pivot-item (or after within))
          (member-extra-args (append (when key  (list :key key))
@@ -57,52 +65,44 @@ check it with:
   (push state (<scanner>-saved-states scanner)))
 
 ;; FIXME reuse thid method in another methods
-(defmethod restore-states ((scanner <scanner>) (to-state <scanner-state>)
-                           &key before-this-state)
-  (let ((pop-items-extra-args (if before-this-state
-                                  (list :within to-state :test #'eq)
-                                  (list :after to-state :test #'eq))))
-    (multiple-value-bind
-          (new-states states-were-changed) (apply #'pop-items
-                                                  (<scanner>-saved-states scanner)
-                                                  pop-items-extra-args)
-      (when states-were-changed
-        (if new-states
-          (progn
-            (setf (<scanner>-saved-states scanner) new-states)
-            (setf (<scanner>-pos scanner) (<scanner-state>-pos (car new-states))))
-          (progn
-            (setf (<scanner>-saved-states scanner) nil) ;; new-state is nil but anyway :)
-            (setf (<scanner>-pos scanner) 0)))))))
+;; (defmethod restore-states ((scanner <scanner>) (to-state <scanner-state>)
+;;                            &key before-this-state)
+;;   (let ((pop-items-extra-args (if before-this-state
+;;                                   (list :within to-state :test #'eq)
+;;                                   (list :after to-state :test #'eq))))
+;;     (multiple-value-bind
+;;           (new-states states-were-changed) (apply #'pop-items
+;;                                                   (<scanner>-saved-states scanner)
+;;                                                   pop-items-extra-args)
+;;       (when states-were-changed
+;;         (if new-states
+;;           (progn
+;;             (setf (<scanner>-saved-states scanner) new-states)
+;;             (setf (<scanner>-pos scanner) (<scanner-state>-pos (car new-states))))
+;;           (progn
+;;             (setf (<scanner>-saved-states scanner) nil) ;; new-state is nil but anyway :)
+;;             (setf (<scanner>-pos scanner) 0)))))))
 
-  ;; (let ((remains (case (car to-state)
-  ;;                  ('after (pop-items (<scanner>-saved-states scanner)
-  ;;                                     :after (cdr to-state)
-  ;;                                     :test #'eq))
-  ;;                  ('within (pop-items (<scanner>-saved-states scanner)
-  ;;                                      :within (cdr to-state)
-  ;;                                      :test #'eq)))))
-  ;;   (when new-states
-  ;;     (setf (<scanner>-saved-states scanner) new-states))))
+;; (defmethod restore-states ((scanner <scanner>) (to-state string)
+;;                            &key before-this-state)
+;;   (let ((found-state (find to-state (<scanner>-saved-states scanner)
+;;                            :key #'<scanner-state>-id
+;;                            :test #'string=)))
+;;     (when found-state
+;;       (setf
+;;        ;; (member ..) returns the tail of stack from `found-state`, `saved-states` will
+;;        ;; keep now only them:
+;;        (<scanner>-saved-states scanner) (member found-state
+;;                                                 (<scanner>-saved-states scanner)
+;;                                                 :test #'eq)
+;;        (<scanner>-pos scanner) (<scanner-state>-pos found-state))
+;;       found-state)))
 
-(defmethod restore-states ((scanner <scanner>) (to-state string))
-  (let ((found-state (find to-state (<scanner>-saved-states scanner)
-                           :key #'<scanner-state>-id
-                           :eq #'string=)))
-    (when found-state
-      (setf
-       ;; (member ..) returns the tail of stack from `found-state`, `saved-states` will
-       ;; keep now only them:
-       (<scanner>-saved-states scanner) (member found-state
-                                                (<scanner>-saved-states scanner)
-                                                :test #'eq)
-       (<scanner>-pos scanner) (<scanner-state>-pos found-state))
-      found-state)))
-
-(defmethod restore-states ((scanner <scanner>) (to-state null))
-  (let ((last-state (pop (<scanner>-saved-states scanner))))
-    (setf (<scanner>-pos scanner) (<scanner-state>-pos last-state))
-    last-state))
+;; (defmethod restore-states ((scanner <scanner>) (to-state null)
+;;                            &key before-this-state)
+;;   (let ((last-state (pop (<scanner>-saved-states scanner))))
+;;     (setf (<scanner>-pos scanner) (<scanner-state>-pos last-state))
+;;     last-state))
 
 
 ;; (defun truly (x)
@@ -291,17 +291,17 @@ check it with:
       (list (cons :uniq-features uniq-features)))))
 
 
+(defun safe-assoc (pairs kw &key default)
+  (let ((p (and (listp pairs)
+                (assoc kw (remove-if-not #'consp pairs)))))
+    (if p (cdr p) default)))
+
+
 (defun get-uniq-features (det-result &optional default)
   "Returns :uniq-features from a determination result, which usually is
   NIL or '((:uniq-features) <int>)...) or something else. If it cannot
   be got, then it returns `default` (NIL or passed)''"
   (safe-assoc det-result :uniq-features :default default))
-
-
-(defun safe-assoc (pairs kw &key default)
-  (let ((p (and (listp pairs)
-                (assoc kw (remove-if-not #'consp pairs)))))
-    (if p (cdr p) default)))
 
 
 (defun det-format (funcs lines)
@@ -402,164 +402,17 @@ check it with:
       (push current-result results))
     (nreverse results)))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Tests ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(5am:def-suite :suite1 :description "EasyTree Test Suite")
-(5am:in-suite :suite1)
-(5am:test ls-1rl-line-det--test1
-          (5am:is (ls-1rl-line-det "-rw-r--r-- 1 me me 2545 Jul 28 20:32 file.lua")))
-(5am:test ls-1rl-line-det--test2
-          (5am:is (ls-1rl-line-det "-rw-r--r-- 1 me me 2545 Jul 28 20:32 'file.lua'")))
-(5am:test ls-1rl-line-det--test3
-          (5am:is (ls-1rl-line-det "-rw-r--r-- 1 me me 2545 Jul 28 2032 'file.lua'")))
-(5am:test ls-1rl-line-det--test4
-          (5am:is (ls-1rl-line-det "-rw-r--r-- 1 me me 2545 Jul 28 2032 \"file X ' lua\"")))
-(5am:test ls-1rl-line-det--test5
-          (5am:is (ls-1rl-line-det "drw-r--r-- 1 me me 2545 Jul 28 2032 xxx/")))
-(5am:test ls-1rl-line-det--test6
-          (5am:is (ls-1rl-line-det "total 12M")))
-(5am:test ls-1rl-line-det--test7
-          (5am:is (ls-1rl-line-det "/a/b:")))
-(5am:test ls-1rl-line-det--test8
-          (5am:is (ls-1rl-line-det "./a/b:")))
-(5am:test ls-1rl-line-det--test9
-          (5am:is (ls-1rl-line-det "../../a/b:")))
-(5am:test ls-1rl-line-det--test10
-          (5am:is-false (ls-1rl-line-det "")))
-(5am:test ls-1rl-line-det--test11
-          (5am:is-false (ls-1rl-line-det "total ")))
-(5am:test ls-1rl-line-det--test12
-          (5am:is (ls-1rl-line-det "'./Linux Directory':")))
-
-(5am:test ls-1r-line-det--test1
-          (5am:is-false (ls-1r-line-det "drw-r--r-- 1 me me 2545 Jul 28 2032 xxx/")))
-(5am:test ls-1r-line-det--test2
-          (5am:is (ls-1r-line-det "")))
-(5am:test ls-1r-line-det--test3
-          (5am:is (ls-1r-line-det "test*")))
-(5am:test ls-1r-line-det--test4
-          (5am:is (ls-1r-line-det "test/")))
-(5am:test ls-1r-line-det--test7
-          (5am:is (ls-1r-line-det "/a/b:")))
-(5am:test ls-1r-line-det--test8
-          (5am:is (ls-1r-line-det "./a/b:")))
-(5am:test ls-1r-line-det--test9
-          (5am:is (ls-1r-line-det "../../a/b:")))
-(5am:test ls-1r-line-det--test10
-          (5am:is (ls-1r-line-det "'xxx \" yyy'")))
-(5am:test ls-1r-line-det--test11
-          (5am:is-false (ls-1r-line-det "|Some")))
-
-(5am:test tree-line-det--test1
-          (5am:is (tree-line-det "├── DetectFormat.txt")))
-(5am:test tree-line-det--test2
-          (5am:is (tree-line-det "│   ├── ascetic.min.css")))
-(5am:test tree-line-det--test3
-          (5am:is (tree-line-det "│   ├── mydir/")))
-(5am:test tree-line-det--test4
-          (5am:is (tree-line-det "└── xxx ' yyy")))
-(5am:test tree-line-det--test5
-          (5am:is (tree-line-det "   |--Print Linux/")))
-(5am:test tree-line-det--test6
-          (5am:is (tree-line-det "|Print*")))
-;; (5am:test tree-line-det--test7
-;;           (5am:is (tree-line-det "Print")))
-
-(5am:test find-line-det--test1
-          (5am:is (find-line-det "./logo_002.svg")))
-(5am:test find-line-det--test2
-          (5am:is (find-line-det "../logo_002.svg")))
-(5am:test find-line-det--test3
-          (5am:is (find-line-det "../../logo_002.svg")))
-(5am:test find-line-det--test4
-          (5am:is (find-line-det "/etc")))
-(5am:test find-line-det--test5
-          (5am:is (every #'find-line-det (uiop:split-string
-                                          (trim-any-whitespaces
-                                           (uiop:run-program '("sh" "-c" "find ~|head -n 100")
-                                                             :output :string
-                                                             :error-output nil
-                                                             :ignore-error-status t))
-                                          :separator '(#\Newline)))))
-
-(5am:test det-format--test1
-          (5am:is (eql 2 (det-format
-                          `(,#'ls-1rl-line-det
-                            ,#'ls-1r-line-det
-                            ,#'tree-line-det
-                            ,#'find-line-det)
-                          '("|  |--Print Linux/"
-                            "|Print/")))))
-(5am:test det-format--test2
-          (5am:is (eql 0 (det-format
-                          `(,#'ls-1rl-line-det
-                            ,#'ls-1r-line-det
-                            ,#'tree-line-det
-                            ,#'find-line-det)
-                          '(""
-                            "total 12M"
-                            "drw-r--r-- 1 me me 2545 Jul 28 2032 xxx"
-                            "'./aaa bbb':")))))
-(5am:test det-format--test3
-          (5am:is (eql 0 (det-format
-                          `(,#'ls-1rl-line-det
-                            ,#'ls-1r-line-det
-                            ,#'tree-line-det
-                            ,#'find-line-det)
-                          (uiop:split-string
-                           (trim-any-whitespaces
-                            (uiop:run-program '("sh" "-c" "ls -1Rl ~|head -n 100")
-                                              :output :string
-                                              :error-output nil
-                                              :ignore-error-status t))
-                           :separator '(#\Newline))))))
-(5am:test det-format--test4
-          (5am:is (eql 1 (det-format
-                          `(,#'ls-1rl-line-det
-                            ,#'ls-1r-line-det
-                            ,#'tree-line-det
-                            ,#'find-line-det)
-                          (uiop:split-string
-                           (trim-any-whitespaces
-                            (uiop:run-program '("sh" "-c" "ls -1R ~|head -n 100")
-                                              :output :string
-                                              :error-output nil
-                                              :ignore-error-status t))
-                           :separator '(#\Newline))))))
-(5am:test det-format--test5
-          (5am:is (eql 3 (det-format
-                          `(,#'ls-1rl-line-det
-                            ,#'ls-1r-line-det
-                            ,#'tree-line-det
-                            ,#'find-line-det)
-                          (uiop:split-string
-                                   (trim-any-whitespaces
-                                    (uiop:run-program '("sh" "-c" "find ~|head -n 100")
-                                                      :output :string
-                                                      :error-output nil
-                                                      :ignore-error-status t))
-                                   :separator '(#\Newline))))))
-(5am:test det-format--test6
-          (5am:is (eql 2 (det-format
-                          `(,#'ls-1rl-line-det
-                            ,#'ls-1r-line-det
-                            ,#'tree-line-det
-                            ,#'find-line-det)
-                          (uiop:split-string
-                                   (trim-any-whitespaces
-                                    (uiop:run-program '("sh" "-c" "tree ~|head -n 100")
-                                                      :output :string
-                                                      :error-output nil
-                                                      :ignore-error-status t))
-                                   :separator '(#\Newline))))))
-
-
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun cli-tests-handler (cmd)
   (declare (ignorable cmd))
-  (uiop:symbol-call :fiveam :run! :suite1))
+  (multiple-value-bind (failed passed)
+      (sijo-doctest:test-package :ros.script.easytree.3962885522)
+    (format t "~&~A failed, ~A passed~%" failed passed)
+    (when (> failed 0)
+      (uiop:quit 1))))
+
+  ;; (sijo-doctest:test :ros.script.easytree.3962885522))
 
 (defun cli-convert-cmd-handler (cmd)
   (declare (ignorable cmd)))
