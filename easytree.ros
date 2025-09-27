@@ -5,7 +5,7 @@ exec ros -Q -- $0 "$@"
 |#
 (progn ;;init forms
   (ros:ensure-asdf)
-  #+quicklisp(ql:quickload '(clingon cl-ppcre sijo-doctest uiop) :silent t)
+  #+quicklisp(ql:quickload '(clingon cl-ppcre fiveam uiop) :silent t)
   )
 
 (defpackage :ros.script.easytree.3962885522
@@ -33,7 +33,7 @@ exec ros -Q -- $0 "$@"
       :accessor <scanner>-saved-states
       :documentation "Stack of saved positions and intermediate results, pop allows backtracking")))
 
-(defun pop-items (items &key after-item within-item key test)
+(defun pop-items (ITEMS &key AFTER-ITEM WITHIN-ITEM KEY TEST)
   "Pops items after-item chosen one including it `:within-item item` or without
 it `:after-item item`. Finding of the item use :test or/and :key criteria
 like standard member/find functions do it. If the item cannot be found,
@@ -50,51 +50,59 @@ check it with:
 >> (multiple-value-list (pop-items '(1 2 3) :within-item 3 :test #'=))
 '(nil t)
 "
-  (let* ((pivot-item (or after-item within-item))
-         (member-extra-args (append (when key  (list :key key))
-                                    (when test (list :test test))))
+  (let* ((pivot-item (or AFTER-ITEM WITHIN-ITEM))
+         (member-extra-args (append (when KEY  (list :key KEY))
+                                    (when TEST (list :test TEST))))
          (remains  ;; [1 2 3] 4 5  <- pop-ed are in the head. Push - to the head too
-           (apply #'member pivot-item items member-extra-args)))
+           (apply #'member pivot-item ITEMS member-extra-args)))
     (cond
-      ((null remains) (values items nil))
-      (after-item (values remains t))
-      (within-item (values (cdr remains) t)))))
+      ((null remains) (values ITEMS nil))
+      (AFTER-ITEM (values remains t))
+      (WITHIN-ITEM (values (cdr remains) t)))))
 
-(defmethod save-state ((scanner <scanner>) (state <scanner-state>))
-  "Saves/pushs a state in a scanner"
-  (push state (<scanner>-saved-states scanner)))
+(defmethod save-state ((SCANNER <scanner>) (STATE <scanner-state>))
+  "Saves/pushs a state in a scanner:
 
-;; FIXME reuse thid method in another methods
-(defmethod restore-states ((scanner <scanner>) (to-state <scanner-state>)
-                           &key before-the-state)
-  (let ((pop-items-extra-args (if before-the-state
-                                  (list :within-item to-state :test #'eq)
-                                  (list :after-item to-state :test #'eq))))
+>> (let ((ss1 (make-<scanner-state> :result 123))
+         (ss2 (make-<scanner-state> :result 456))
+         (s (make-instance '<scanner>)))
+     (save-state s ss1)
+     (save-state s ss2)
+     (length (<scanner>-saved-states s)))
+9  ; XXX must fail but it is not !!!
+"
+  (push STATE (<scanner>-saved-states SCANNER)))
+
+(defmethod restore-states ((SCANNER <scanner>) (TO-STATE <scanner-state>)
+                           &key BEFORE-THE-STATE)
+  (let ((pop-items-extra-args (if BEFORE-THE-STATE
+                                  (list :within-item TO-STATE :test #'eq)
+                                  (list :after-item TO-STATE :test #'eq))))
     (multiple-value-bind
           (new-states states-were-changed) (apply #'pop-items
-                                                  (<scanner>-saved-states scanner)
+                                                  (<scanner>-saved-states SCANNER)
                                                   pop-items-extra-args)
       (when states-were-changed
         (if new-states
           (progn
-            (setf (<scanner>-saved-states scanner) new-states)
-            (setf (<scanner>-pos scanner) (<scanner-state>-pos (car new-states))))
+            (setf (<scanner>-saved-states SCANNER) new-states)
+            (setf (<scanner>-pos SCANNER) (<scanner-state>-pos (car new-states))))
           (progn
-            (setf (<scanner>-saved-states scanner) nil) ;; new-state is nil but anyway :)
-            (setf (<scanner>-pos scanner) 0)))))))
+            (setf (<scanner>-saved-states SCANNER) nil) ;; new-state is nil but anyway :)
+            (setf (<scanner>-pos SCANNER) 0)))))))
 
-(defmethod restore-states ((scanner <scanner>) (to-state string)
-                           &key before-the-state)
-  (let ((found-state (find to-state (<scanner>-saved-states scanner)
+(defmethod restore-states ((SCANNER <scanner>) (TO-STATE string)
+                           &key BEFORE-THE-STATE)
+  (let ((found-state (find TO-STATE (<scanner>-saved-states SCANNER)
                            :key #'<scanner-state>-id
                            :test #'string=)))
     (when found-state
-      (restore-states scanner found-state :key before-the-state))))
+      (restore-states SCANNER found-state :before-the-state BEFORE-THE-STATE))))
 
-(defmethod restore-states ((scanner <scanner>) (to-state null)
-                           &key before-the-state)
-  (let ((last-state (pop (<scanner>-saved-states scanner))))
-    (when last-state (restore-states scanner last-state :key before-the-state))))
+(defmethod restore-states ((SCANNER <scanner>) (TO-STATE null)
+                           &key BEFORE-THE-STATE)
+  (let ((last-state (pop (<scanner>-saved-states SCANNER))))
+    (when last-state (restore-states SCANNER last-state :before-the-state BEFORE-THE-STATE))))
 
 
 ;; (defun truly (x)
@@ -106,16 +114,16 @@ check it with:
   (or (not a) b))
 
 
-(defun starts-with-p (string prefix &key case-insensitive)
-  "Check that `string` starts with `prefix`"
-  (and (<= (length prefix) (length string))
-       (if case-insensitive
-           (string-equal prefix (subseq string 0 (length prefix)))
-           (string= prefix (subseq string 0 (length prefix)) :start1 0 :start2 0))))
+(defun starts-with-p (STRING PREFIX &key CASE-INSENSITIVE)
+  "Check that `string` starts with `PREFIX`"
+  (and (<= (length PREFIX) (length STRING))
+       (if CASE-INSENSITIVE
+           (string-equal PREFIX (subseq STRING 0 (length PREFIX)))
+           (string= PREFIX (subseq STRING 0 (length PREFIX)) :start1 0 :start2 0))))
 
 
-(defun ch-at (string i)
-  (if (or (>= i (length string)) (< i 0)) nil (char string i)))
+(defun ch-at (STRING I)
+  (if (or (>= I (length STRING)) (< I 0)) nil (char STRING I)))
 
 ;; XXX "Permission denied" containing lines must be ignored!
 ;; XXX Also "cannot open directory"
@@ -283,7 +291,7 @@ check it with:
       (list (cons :uniq-features uniq-features)))))
 
 
-(defun safe-assoc (pairs kw &key default)
+(defun safe-assoc (pairs kw &KEY default)
   (let ((p (and (listp pairs)
                 (assoc kw (remove-if-not #'consp pairs)))))
     (if p (cdr p) default)))
@@ -394,15 +402,42 @@ check it with:
       (push current-result results))
     (nreverse results)))
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Test ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(5am:def-suite :suite1 :description "EasyTree Test Suite")
+(5am:in-suite :suite1)
+(5am:test save-state--test1
+          (5am:is (let ((ss1 (make-<scanner-state> :result 123))
+                        (ss2 (make-<scanner-state> :result 456))
+                        (s (make-instance '<scanner>)))
+                    (save-state s ss1)
+                    (save-state s ss2)
+                    (= 2 (length (<scanner>-saved-states s))))))
+(5am:test restore-states--test1
+          (5am:is (let ((ss1 (make-<scanner-state> :pos 10 :result 123 :id "ID0"))
+                        (ss2 (make-<scanner-state> :pos 20 :result 456 :id "ID1"))
+                        (ss3 (make-<scanner-state> :pos 30 :result 789 :id "ID2"))
+                        (s (make-instance '<scanner>)))
+                    (save-state s ss1) (save-state s ss2) (save-state s ss3)
+                    (progn
+                      (restore-states s "ID1")
+                      (= 20 (<scanner>-pos s))))))
+(5am:test restore-states--test2
+          (5am:is (let ((ss1 (make-<scanner-state> :pos 10 :result 123 :id "ID0"))
+                        (ss2 (make-<scanner-state> :pos 20 :result 456 :id "ID1"))
+                        (ss3 (make-<scanner-state> :pos 30 :result 789 :id "ID2"))
+                        (s (make-instance '<scanner>)))
+                    (save-state s ss1) (save-state s ss2) (save-state s ss3)
+                    (progn
+                      (restore-states s "ID1" :before-the-state T)
+                      (= 10 (<scanner>-pos s))))))
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun cli-tests-handler (cmd)
   (declare (ignorable cmd))
-  (multiple-value-bind (failed passed)
-      (sijo-doctest:test-package :ros.script.easytree.3962885522)
-    (format t "~&~A failed, ~A passed~%" failed passed)
-    (when (> failed 0)
-      (uiop:quit 1))))
+  (uiop:symbol-call :fiveam :run! :suite1))
 
   ;; (sijo-doctest:test :ros.script.easytree.3962885522))
 
@@ -427,7 +462,7 @@ check it with:
     :items +fmt+)
    (clingon:make-option
     :string
-    :description "Strip paths by prefix (N dirs, string dir)"
+    :description "Strip paths by PREFIX (N dirs, string dir)"
     :short-name #\s
     :long-name "strip"
     :key :strip)
