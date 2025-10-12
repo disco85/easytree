@@ -8,110 +8,13 @@ exec ros -Q -- $0 "$@"
   #+quicklisp(ql:quickload '(clingon cl-ppcre fiveam uiop) :silent t)
   )
 
-(defpackage :ros.script.easytree.3962885522
+(defpackage :ros.script.easytree
   (:use :cl))
-(in-package :ros.script.easytree.3962885522)
+(in-package :ros.script.easytree)
 
 
 (defun dbg (s x) (format t "*** TRACE[~A]: ~S~% ***" s x) x)
 
-
-
-(defstruct <scanner-state> ;;(:conc-name <scanner-state>-))
-  "The state of the scanner, it can be saved then rejected (for backtracking)"
-  (pos 0 :type (integer 0 *))
-  result
-  (id "" :type string))
-
-(defclass <scanner> ()
-    ((pos
-      :initform 0
-      :accessor <scanner>-pos
-      :documentation "Cursor")
-     (saved-states
-      :initform nil
-      :accessor <scanner>-saved-states
-      :documentation "Stack of saved positions and intermediate results, pop allows backtracking")))
-
-(defun pop-items (ITEMS &key AFTER-ITEM WITHIN-ITEM KEY TEST)
-  "Pops items after-item chosen one including it `:within-item item` or without
-it `:after-item item`. Finding of the item use :test or/and :key criteria
-like standard member/find functions do it. If the item cannot be found,
-`items` are returned. The second returned value is NIL then. Else,
-`items` without poped items are returned. The second value is T,
-check it with:
-
->> (multiple-value-list (pop-items '(1 2 3) :after-item 2 :test #'=))
-'((2 3) t)
->> (multiple-value-list (pop-items '(1 2 3) :within-item 2 :test #'=))
-'((3) t)
->> (multiple-value-list (pop-items '(1 2 3) :within-item 20 :test #'=))
-'((1 2 3) nil)
->> (multiple-value-list (pop-items '(1 2 3) :within-item 3 :test #'=))
-'(nil t)
-"
-  (let* ((pivot-item (or AFTER-ITEM WITHIN-ITEM))
-         (member-extra-args (append (when KEY  (list :key KEY))
-                                    (when TEST (list :test TEST))))
-         (remains  ;; [1 2 3] 4 5  <- pop-ed are in the head. Push - to the head too
-           (apply #'member pivot-item ITEMS member-extra-args)))
-    (cond
-      ((null remains) (values ITEMS nil))
-      (AFTER-ITEM (values remains t))
-      (WITHIN-ITEM (values (cdr remains) t)))))
-
-(defmethod save-state ((SCANNER <scanner>) (STATE <scanner-state>))
-  "Saves/pushs a state in a scanner:
-
->> (let ((ss1 (make-<scanner-state> :result 123))
-         (ss2 (make-<scanner-state> :result 456))
-         (s (make-instance '<scanner>)))
-     (save-state s ss1)
-     (save-state s ss2)
-     (length (<scanner>-saved-states s)))
-9  ; XXX must fail but it is not !!!
-"
-  (push STATE (<scanner>-saved-states SCANNER)))
-
-(defmethod restore-states ((SCANNER <scanner>) (TO-STATE <scanner-state>)
-                           &key BEFORE-THE-STATE)
-  (let ((pop-items-extra-args (if BEFORE-THE-STATE
-                                  (list :within-item TO-STATE :test #'eq)
-                                  (list :after-item TO-STATE :test #'eq))))
-    (multiple-value-bind
-          (new-states states-were-changed) (apply #'pop-items
-                                                  (<scanner>-saved-states SCANNER)
-                                                  pop-items-extra-args)
-      (when states-were-changed
-        (if new-states
-          (progn
-            (setf (<scanner>-saved-states SCANNER) new-states)
-            (setf (<scanner>-pos SCANNER) (<scanner-state>-pos (car new-states))))
-          (progn
-            (setf (<scanner>-saved-states SCANNER) nil) ;; new-state is nil but anyway :)
-            (setf (<scanner>-pos SCANNER) 0)))))))
-
-(defmethod restore-states ((SCANNER <scanner>) (TO-STATE string)
-                           &key BEFORE-THE-STATE)
-  (let ((found-state (find TO-STATE (<scanner>-saved-states SCANNER)
-                           :key #'<scanner-state>-id
-                           :test #'string=)))
-    (when found-state
-      (restore-states SCANNER found-state :before-the-state BEFORE-THE-STATE))))
-
-(defmethod restore-states ((SCANNER <scanner>) (TO-STATE null)
-                           &key BEFORE-THE-STATE)
-  (let ((last-state (pop (<scanner>-saved-states SCANNER))))
-    (when last-state (restore-states SCANNER last-state :before-the-state BEFORE-THE-STATE))))
-
-
-;; (defun truly (x)
-;;   "Like Python's bool()"
-;;   (if x t nil))
-
-(defun implies (a b)
-  "Implication: a -> b"
-  (or (not a) b))
 
 
 (defun starts-with-p (STRING PREFIX &key CASE-INSENSITIVE)
@@ -124,6 +27,78 @@ check it with:
 
 (defun ch-at (STRING I)
   (if (or (>= I (length STRING)) (< I 0)) nil (char STRING I)))
+
+
+(deftype <fsobj> () '(member :file :dir))
+
+(defconstant +formats+ '(:tree :find :ls1r :ls1rl))
+(deftype <format> ()
+  `(member nil ,@ +formats+)))
+
+(defun other-formats (FORMAT)
+  "Returns all +formats+ except FORMAT"
+  (remove-if (lambda (fmt) (eq fmt FORMAT)) +formats+))
+
+(defstruct <parsed-line>
+  (format nil :type <format>)
+  (name "" :type string)
+  (fmode 0 :type integer)
+  (fsobj :file :type <fsobj>))
+
+(defstruct <parsed-lines>
+  (detected-format nil :type <format>)
+  (as-tree nil :type list)  ;; list of <parsed-line>
+  (as-find nil :type list)
+  (as-ls1r nil :type list)
+  (as-ls1rl nil :type list))
+
+(declaim (ftype (function (<parsed-lines> <format>) list) get-parsed-lines-as))
+(defun get-parsed-lines-as (PARSED-LINES FORMAT)
+  (ecase FORMAT
+    (:tree (<parsed-lines>-as-tree PARSED-LINES))
+    (:find (<parsed-lines>-as-find PARSED-LINES))
+    (:ls1r (<parsed-lines>-as-ls1r PARSED-LINES))
+    (:ls1rl (<parsed-lines>-as-ls1rl PARSED-LINES))))
+
+(declaim (ftype (function (<parsed-lines> <format>) boolean) are-parsed-lines-relevant-yet))
+(defun are-parsed-lines-relevant-yet (PARSED-LINES FORMAT)
+  "Are parsed lines relevant yet for accumulation? It's true if we still did not
+   found such format lines or if we found them and we collect now them. If we just
+   found another format line, then we failed with this format. We mark it with NIL
+   in the car"
+  (let* ((lines (get-parsed-lines-as FORMAT))
+         (rel (or (null lines) (not (null (car lines))))))
+    rel))
+
+(defun irrelevant-parsed-lines (PARSED-LINES FORMAT)
+  "Marks lines of <parsed-lines> FORMAT as irrelevant more but only if there were some"
+  (let* ((lines (get-parsed-lines-as FORMAT))
+         (marked-as-irrelevant (cons nil lines)))
+    (when lines ;; TODO is it correct?
+      (ecase FORMAT
+        (:tree (setf (<parsed-lines-as-tree> PARSED-LINES) marked-as-irrelevant))
+        (:find (setf (<parsed-lines-as-find> PARSED-LINES) marked-as-irrelevant))
+        (:ls1r (setf (<parsed-lines-as-ls1r> PARSED-LINES) marked-as-irrelevant))
+        (:ls1rl (setf (<parsed-lines-as-ls1rl> PARSED-LINES) marked-as-irrelevant))))))
+
+(declaim (ftype (function (string) (or null <parsed-line>)) parse-line-as-tree))
+(declaim (ftype (function (string) (or null <parsed-line>)) parse-line-as-find))
+(declaim (ftype (function (string) (or null <parsed-line>)) parse-line-as-ls1r))
+(declaim (ftype (function (string) (or null <parsed-line>)) parse-line-as-ls1rl))
+(defun parse-line-as-tree (STR))
+(defun parse-line-as-find (STR))
+(defun parse-line-as-ls1r (STR))
+(defun parse-line-as-ls1r (STR))
+
+(declaim (ftype (function (string <parsed-lines>) (or nil <parsed-lines>)) parse-line))
+(defun parse-line (STR PARSED-LINES)
+  ;; TODO
+  (let* ((parsed-line (or (parse-line-as-tree STR) (parse-line-as-find STR)
+                          (parse-line-as-ls1r STR) (parse-line-as-ls1rl STR)))
+         )
+    (if (and parsed-line (<parsed-line>-format parsed-line))
+        ...
+        nil)))
 
 ;; XXX "Permission denied" containing lines must be ignored!
 ;; XXX Also "cannot open directory"
@@ -238,7 +213,6 @@ check it with:
          (uniq-features 0))
     (when
         (and (> last-i 0)
-             ;; TODO windows?
              (or (and (starts-with-p line total-str) (> last-i (length total-str))
                       (digit-char-p (ch-at line (length total-str))))
                  (and (char= #\: (ch-at line last-i))
@@ -362,20 +336,20 @@ check it with:
 (defconstant +fmt+ '(:ls :find :tree))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Logic ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defun detect-series (input classifiers)
+(defun detect-series (INPUT CLASSIFIERS)
   (let ((results nil)
         ;; current-result is (class-of-series . the-length-of-series):
         (current-result (cons -1 0))
-        ;; objects in input that cannot be classified (index in classifiers), will be
+        ;; objects in INPUT that cannot be classified (index in CLASSIFIERS), will be
         ;; marked with index out of bounds, ie, max allowed index + 1 (or their length):
-        (unknown-class (length classifiers))
-        ;; did we classified the object using all classifiers on the loop:
+        (unknown-class (length CLASSIFIERS))
+        ;; did we classified the object using all CLASSIFIERS on the loop:
         (classified nil))
-    (unless (or (null input) (null classifiers))  ;; just ignore empty input/classifiers
-      (dolist (obj input)
+    (unless (or (null INPUT) (null CLASSIFIERS))  ;; just ignore empty INPUT/CLASSIFIERS
+      (dolist (obj INPUT)
         (setf classified nil)
-        (dotimes (c (length classifiers))
-          (when (funcall (nth c classifiers) obj)
+        (dotimes (c (length CLASSIFIERS))
+          (when (funcall (nth c CLASSIFIERS) obj)
             ;; classified by the current classifier or a new one, anyway, must be marked
             ;; as classified, else it will be marked as unknown class:
             (setf classified t)
@@ -386,7 +360,7 @@ check it with:
                     (push current-result results))
                   (setf current-result (cons c 1))))))
         (unless classified
-          ;; if no classifiers recognized obj, then it will be unknown-class. But first,
+          ;; if no CLASSIFIERS recognized obj, then it will be unknown-class. But first,
           ;; we look if the current-result already is unknown-class - if yes, then we
           ;; expand it (increment its length). If it was some known classifier, we add
           ;; it to all results. Else - just replace it (such class is -1):
@@ -429,7 +403,7 @@ check it with:
                         (s (make-instance '<scanner>)))
                     (save-state s ss1) (save-state s ss2) (save-state s ss3)
                     (progn
-                      (restore-states s "ID1" :before-the-state T)
+                      (restore-states s "ID1" :before-it T)
                       (= 10 (<scanner>-pos s))))))
 
 
@@ -438,8 +412,7 @@ check it with:
 (defun cli-tests-handler (cmd)
   (declare (ignorable cmd))
   (uiop:symbol-call :fiveam :run! :suite1))
-
-  ;; (sijo-doctest:test :ros.script.easytree.3962885522))
+  ;; (sijo-doctest:test :ros.script.easytree))
 
 (defun cli-convert-cmd-handler (cmd)
   (declare (ignorable cmd)))
