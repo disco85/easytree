@@ -33,7 +33,7 @@ exec ros -Q -- $0 "$@"
 
 (defconstant +formats+ '(:tree :find :ls1r :ls1rl))
 (deftype <format> ()
-  `(member nil ,@ +formats+)))
+  `(member nil ,@ +formats+))
 
 (defun other-formats (FORMAT)
   "Returns all +formats+ except FORMAT"
@@ -89,11 +89,12 @@ exec ros -Q -- $0 "$@"
 (defun add-to-parsed-lines (PARSED-LINES FORMAT PARSED-LINE)
   "Adds a <parsed-line> to <parsed-lines> FORMAT (relies on a callee that it will
    not add it to wrong FORMAT)"
-  (let ((lines (get-parsed-lines FORMAT))
-        (new-lines (append lines (list PARSED-LINE))))
+  (let* ((lines (get-parsed-lines PARSED-LINES FORMAT))
+         (new-lines (append lines (list PARSED-LINE))))
     (set-parsed-lines PARSED-LINES FORMAT new-lines)))
 
-(declaim (ftype (function (<parsed-lines> <format> <parsed-line>) list) add-to-parsed-lines-if-relevant-yet))
+(declaim (ftype (function (<parsed-lines> <format> <parsed-line>) (or null <parsed-lines>))
+                add-to-parsed-lines-if-relevant-yet))
 (defun add-to-parsed-lines-if-relevant-yet (PARSED-LINES FORMAT PARSED-LINE)
   "Adds a <parsed-line> to <parsed-lines> FORMAT if the FORMAT is relevant yet.
    Else returns NIL and does nothing"
@@ -102,7 +103,8 @@ exec ros -Q -- $0 "$@"
       (add-to-parsed-lines PARSED-LINES FORMAT PARSED-LINE)
       (mapcar (lambda (failed-format)
                 (irrelevant-parsed-lines PARSED-LINES failed-format))
-              failed-formats ))))
+              failed-formats)
+      PARSED-LINES)))
 
 
 (declaim (ftype (function (string) (or null <parsed-line>)) parse-line-as-tree))
@@ -114,17 +116,16 @@ exec ros -Q -- $0 "$@"
 (defun parse-line-as-ls1r (STR)) ;; TODO
 (defun parse-line-as-ls1rl (STR)) ;; TODO
 
-(declaim (ftype (function (string <parsed-lines>) (or nil <parsed-lines>)) parse-line))
+(declaim (ftype (function (string <parsed-lines>) (or null <parsed-lines>)) parse-line))
 (defun parse-line (STR PARSED-LINES)
-  ;; TODO
-  (let* ((parsed-line (or (parse-line-as-tree STR) (parse-line-as-find STR)
-                          (parse-line-as-ls1r STR) (parse-line-as-ls1rl STR)))
-         )
-    (when (and parsed-line
-               (<parsed-line>-format parsed-line)
-               (funcall wrong-assumption cur-parsed-lines))
-        ...
-        )))
+  (let* ((parsed-line (or (parse-line-as-tree STR)
+                          (parse-line-as-find STR)
+                          (parse-line-as-ls1r STR)
+                          (parse-line-as-ls1rl STR)))
+         (parsed-as-format (and parsed-line
+                                (<parsed-line>-format parsed-line))))
+    (when parsed-as-format
+      (add-to-parsed-lines-if-relevant-yet PARSED-LINES parsed-as-format parsed-line))))
 
 ;; XXX "Permission denied" containing lines must be ignored!
 ;; XXX Also "cannot open directory"
