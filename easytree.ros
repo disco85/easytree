@@ -46,6 +46,7 @@ exec ros -Q -- $0 "$@"
   (fsobj :file :type <fsobj>))
 
 (defstruct <parsed-lines>
+  (number 0 :type integer)
   (detected-format nil :type <format>)
   (as-tree nil :type list)  ;; list of <parsed-line>
   (as-find nil :type list)
@@ -60,6 +61,17 @@ exec ros -Q -- $0 "$@"
     (:ls1r (<parsed-lines>-as-ls1r PARSED-LINES))
     (:ls1rl (<parsed-lines>-as-ls1rl PARSED-LINES))))
 
+(declaim (ftype (function (<parsed-lines>) cons) get-most-parsed-lines))
+(defun get-most-parsed-lines (PARSED-LINES)
+  "Returns the longest list of accumulated <parsed-line> items"
+  (reduce (lambda (a b)
+            (if (> (length (cdr a)) (length (cdr b)))
+                a
+                b))
+          (mapcar (lambda (fmt)
+                    (cons fmt (get-parsed-lines PARSED-LINES fmt)))
+                  +formats+)))
+
 (declaim (ftype (function (<parsed-lines> <format> list) list) set-parsed-lines))
 (defun set-parsed-lines (PARSED-LINES FORMAT NEW-VALUE)
   (ecase FORMAT
@@ -68,44 +80,31 @@ exec ros -Q -- $0 "$@"
     (:ls1r (setf (<parsed-lines>-as-ls1r PARSED-LINES) NEW-VALUE))
     (:ls1rl (setf (<parsed-lines>-as-ls1rl PARSED-LINES) NEW-VALUE))))
 
-(declaim (ftype (function (<parsed-lines> <format>) boolean) are-parsed-lines-relevant-yet))
-(defun are-parsed-lines-relevant-yet (PARSED-LINES FORMAT)
-  "Are parsed lines relevant yet for accumulation? It's true if we still did not
-   found such format lines or if we found them and we collect now them. If we just
-   found another format line, then we failed with this format. We mark it with NIL
-   in the car"
-  (let* ((lines (get-parsed-lines PARSED-LINES FORMAT))
-         (rel (or (null lines) (not (null (car lines))))))
-    rel))
-
-(declaim (ftype (function (<parsed-lines> <format>) list) irrelevant-parsed-lines))
-(defun irrelevant-parsed-lines (PARSED-LINES FORMAT)
-  "Marks lines of <parsed-lines> FORMAT as irrelevant more"
-  (let* ((lines (get-parsed-lines PARSED-LINES FORMAT))
-         (marked-as-irrelevant (cons nil lines)))
-    (set-parsed-lines PARSED-LINES FORMAT marked-as-irrelevant)))
-
 (declaim (ftype (function (<parsed-lines> <format> <parsed-line>) list) add-to-parsed-lines))
 (defun add-to-parsed-lines (PARSED-LINES FORMAT PARSED-LINE)
   "Adds a <parsed-line> to <parsed-lines> FORMAT (relies on a callee that it will
-   not add it to wrong FORMAT)"
+not add it to wrong FORMAT)"
   (let* ((lines (get-parsed-lines PARSED-LINES FORMAT))
          (new-lines (append lines (list PARSED-LINE))))
     (set-parsed-lines PARSED-LINES FORMAT new-lines)))
 
-(declaim (ftype (function (<parsed-lines> <format> <parsed-line>) (or null <parsed-lines>))
-                add-to-parsed-lines-if-relevant-yet))
-(defun add-to-parsed-lines-if-relevant-yet (PARSED-LINES FORMAT PARSED-LINE)
-  "Adds a <parsed-line> to <parsed-lines> FORMAT if the FORMAT is relevant yet.
-   Else returns NIL and does nothing"
-  (when (are-parsed-lines-relevant-yet PARSED-LINES FORMAT)
-    (let ((failed-formats (other-formats FORMAT)))
-      (add-to-parsed-lines PARSED-LINES FORMAT PARSED-LINE)
-      (mapcar (lambda (failed-format)
-                (irrelevant-parsed-lines PARSED-LINES failed-format))
-              failed-formats)
-      PARSED-LINES)))
-
+(declaim (ftype (function (<parsed-lines> list) (or null list)) add-to-actively-parsed-lines))
+(defun add-to-actively-parsed-lines (PARSED-LINES RESULTS)
+  "Puts results (list of cons-es `(<format> . <parsed-line>)`) to <parsed-lines> if it is
+possible yet (there are yet actively collecting <parsed-line> lists)"
+  (let* ((already-lines (<parsed-lines>-number PARSED-LINES))
+         (results-to-add
+           (remove-if-not
+            (lambda (result)
+              (destructuring-bind (fmt parsed-line) result
+                (declare (ignore parsed-line))
+                (eql already-lines (length (get-parsed-lines PARSED-LINES fmt)))))
+            RESULTS))
+         (updated (mapcar (lambda (result)
+                            (destructuring-bind (fmt parsed-line) result
+                              (add-to-parsed-lines PARSED-LINES fmt parsed-line)))
+                          results-to-add)))
+    updated))
 
 (declaim (ftype (function (string) (or null <parsed-line>)) parse-line-as-tree))
 (declaim (ftype (function (string) (or null <parsed-line>)) parse-line-as-find))
@@ -125,7 +124,7 @@ exec ros -Q -- $0 "$@"
          (parsed-as-format (and parsed-line
                                 (<parsed-line>-format parsed-line))))
     (when parsed-as-format
-      (add-to-parsed-lines-if-relevant-yet PARSED-LINES parsed-as-format parsed-line))))
+      (add-to-parsed-lines PARSED-LINES parsed-as-format parsed-line))))
 
 ;; XXX "Permission denied" containing lines must be ignored!
 ;; XXX Also "cannot open directory"
