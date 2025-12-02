@@ -61,16 +61,22 @@ exec ros -Q -- $0 "$@"
     (:ls1r (<parsed-lines>-as-ls1r PARSED-LINES))
     (:ls1rl (<parsed-lines>-as-ls1rl PARSED-LINES))))
 
-(declaim (ftype (function (<parsed-lines>) cons) get-most-parsed-lines))
+(declaim (ftype (function (<parsed-lines>) list) get-most-parsed-lines))
 (defun get-most-parsed-lines (PARSED-LINES)
-  "Returns the longest list of accumulated <parsed-line> items"
-  (reduce (lambda (a b)
-            (if (> (length (cdr a)) (length (cdr b)))
-                a
-                b))
+  "Returns a list of the longest lists of accumulated <parsed-line> items"
+  (reduce (lambda (res cons-i)
+            (let* ((parsed-lines-i (cdr cons-i))
+                   (parsed-lines-i-len (length parsed-lines-i))
+                   (parsed-lines-max-len (if res (length (car res)) 0)))
+              (cond ((null res) (list cons-i))
+                    ((> parsed-lines-i-len parsed-lines-max-len)
+                     (list cons-i))
+                    ((= parsed-lines-i-len parsed-lines-max-len)
+                     (append res (list cons-i))))))
           (mapcar (lambda (fmt)
                     (cons fmt (get-parsed-lines PARSED-LINES fmt)))
-                  +formats+)))
+                  +formats+)
+          :initial-value nil))
 
 (declaim (ftype (function (<parsed-lines> <format> list) list) set-parsed-lines))
 (defun set-parsed-lines (PARSED-LINES FORMAT NEW-VALUE)
@@ -90,7 +96,7 @@ not add it to wrong FORMAT)"
 
 (declaim (ftype (function (<parsed-lines> list) (or null list)) add-to-actively-parsed-lines))
 (defun add-to-actively-parsed-lines (PARSED-LINES RESULTS)
-  "Puts results (list of cons-es `(<format> . <parsed-line>)`) to <parsed-lines> if it is
+  "Puts results, list of cons-es `(<format> . <parsed-line>)`, to <parsed-lines> if it is
 possible yet (there are yet actively collecting <parsed-line> lists)"
   (let* ((already-lines (<parsed-lines>-number PARSED-LINES))
          (results-to-add
@@ -116,7 +122,7 @@ possible yet (there are yet actively collecting <parsed-line> lists)"
 (defun parse-line-as-ls1rl (STR)) ;; TODO
 
 (declaim (ftype (function (string <parsed-lines>) (or null <parsed-lines>)) parse-line))
-(defun parse-line (STR PARSED-LINES)
+(defun parse-line (STR PARSED-LINES) ;; TODO
   (let* ((parsed-line (or (parse-line-as-tree STR)
                           (parse-line-as-find STR)
                           (parse-line-as-ls1r STR)
