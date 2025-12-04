@@ -61,22 +61,47 @@ exec ros -Q -- $0 "$@"
     (:ls1r (<parsed-lines>-as-ls1r PARSED-LINES))
     (:ls1rl (<parsed-lines>-as-ls1rl PARSED-LINES))))
 
-(declaim (ftype (function (<parsed-lines>) list) get-most-parsed-lines))
-(defun get-most-parsed-lines (PARSED-LINES)
-  "Returns a list of the longest lists of accumulated <parsed-line> items"
+(defun get-cons-with-longest-list (conses)
+  "Returns a list of cons-es with the longest cdr:
+
+CL-USER> (get-cons-with-longest-list '((1) (2)))
+((1) (2))
+CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12 13)))
+((2 11 12 13))
+CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12)))
+((1 2 3) (2 11 12))
+CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12) ()))
+((1 2 3) (2 11 12))
+CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12) (3)))
+((1 2 3) (2 11 12))
+CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4)))
+((1 2 3) (2 11 12))
+CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4 5)))
+((1 2 3) (2 11 12) (3 4 5))
+CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4 5 6)))
+((3 4 5 6))
+"
   (reduce (lambda (res cons-i)
             (let* ((parsed-lines-i (cdr cons-i))
                    (parsed-lines-i-len (length parsed-lines-i))
-                   (parsed-lines-max-len (if res (length (car res)) 0)))
+                   (parsed-lines-max-len (if res (length (cdar res)) 0)))
               (cond ((null res) (list cons-i))
                     ((> parsed-lines-i-len parsed-lines-max-len)
                      (list cons-i))
                     ((= parsed-lines-i-len parsed-lines-max-len)
-                     (append res (list cons-i))))))
-          (mapcar (lambda (fmt)
-                    (cons fmt (get-parsed-lines PARSED-LINES fmt)))
-                  +formats+)
+                     (append res (list cons-i)))
+                    (t res))))
+          conses
           :initial-value nil))
+
+(declaim (ftype (function (<parsed-lines>) list) get-most-parsed-lines))
+(defun get-most-parsed-lines (PARSED-LINES)
+  "Returns a list of the longest lists of accumulated <parsed-line> items
+in a form (<format> . lines-list)"
+  (get-cons-with-longest-list
+   (mapcar (lambda (fmt)
+             (cons fmt (get-parsed-lines PARSED-LINES fmt)))
+           +formats+)))
 
 (declaim (ftype (function (<parsed-lines> <format> list) list) set-parsed-lines))
 (defun set-parsed-lines (PARSED-LINES FORMAT NEW-VALUE)
@@ -94,23 +119,23 @@ not add it to wrong FORMAT)"
          (new-lines (append lines (list PARSED-LINE))))
     (set-parsed-lines PARSED-LINES FORMAT new-lines)))
 
-(declaim (ftype (function (<parsed-lines> list) (or null list)) add-to-actively-parsed-lines))
-(defun add-to-actively-parsed-lines (PARSED-LINES RESULTS)
-  "Puts results, list of cons-es `(<format> . <parsed-line>)`, to <parsed-lines> if it is
-possible yet (there are yet actively collecting <parsed-line> lists)"
-  (let* ((already-lines (<parsed-lines>-number PARSED-LINES))
-         (results-to-add
-           (remove-if-not
-            (lambda (result)
-              (destructuring-bind (fmt parsed-line) result
-                (declare (ignore parsed-line))
-                (eql already-lines (length (get-parsed-lines PARSED-LINES fmt)))))
-            RESULTS))
-         (updated (mapcar (lambda (result)
-                            (destructuring-bind (fmt parsed-line) result
-                              (add-to-parsed-lines PARSED-LINES fmt parsed-line)))
-                          results-to-add)))
-    updated))
+;; (declaim (ftype (function (<parsed-lines> list) (or null list)) add-to-actively-parsed-lines))
+;; (defun add-to-actively-parsed-lines (PARSED-LINES RESULTS)
+;;   "Puts results, list of cons-es `(<format> . <parsed-line>)`, to <parsed-lines> if it is
+;; possible yet (there are yet actively collecting <parsed-line> lists)"
+;;   (let* ((already-lines (<parsed-lines>-number PARSED-LINES))
+;;          (results-to-add
+;;            (remove-if-not
+;;             (lambda (result)
+;;               (destructuring-bind (fmt parsed-line) result
+;;                 (declare (ignore parsed-line))
+;;                 (eql already-lines (length (get-parsed-lines PARSED-LINES fmt)))))
+;;             RESULTS))
+;;          (updated (mapcar (lambda (result)
+;;                             (destructuring-bind (fmt parsed-line) result
+;;                               (add-to-parsed-lines PARSED-LINES fmt parsed-line)))
+;;                           results-to-add)))
+;;     updated))
 
 (declaim (ftype (function (string) (or null <parsed-line>)) parse-line-as-tree))
 (declaim (ftype (function (string) (or null <parsed-line>)) parse-line-as-find))
@@ -121,16 +146,30 @@ possible yet (there are yet actively collecting <parsed-line> lists)"
 (defun parse-line-as-ls1r (STR)) ;; TODO
 (defun parse-line-as-ls1rl (STR)) ;; TODO
 
-(declaim (ftype (function (string <parsed-lines>) (or null <parsed-lines>)) parse-line))
-(defun parse-line (STR PARSED-LINES) ;; TODO
-  (let* ((parsed-line (or (parse-line-as-tree STR)
-                          (parse-line-as-find STR)
-                          (parse-line-as-ls1r STR)
-                          (parse-line-as-ls1rl STR)))
-         (parsed-as-format (and parsed-line
-                                (<parsed-line>-format parsed-line))))
-    (when parsed-as-format
-      (add-to-parsed-lines PARSED-LINES parsed-as-format parsed-line))))
+(declaim (ftype (function (<format>) (function (string) (or null <parsed-line>))) get-parse-func))
+(defun get-parse-func (FORMAT)
+  (ecase FORMAT
+    (:tree parse-line-as-tree)
+    (:find parse-line-as-find)
+    (:ls1r parse-line-as-ls1r)
+    (:ls1rl parse-line-as-ls1rl)))
+
+(declaim (ftype (function (string <parsed-lines>) (or null list)) parse-line))
+(defun parse-line (STR PARSED-LINES)
+  "Parses string STR until there are active formats (formats that still parse),
+returns a list of lists (parsed strings) or null if nothing can be parsed more"
+  (let* ((active-formats (get-most-parsed-lines PARSED-LINES))
+         (parse-funcs (mapcar #'get-parse-func
+                              (mapcar #'car active-formats)))
+         (active-formats-parsed-line
+           (mapcar (lambda (parse-func) (apply parse-func STR))
+                   parse-funcs))
+         (done (mapcar (lambda (active-format parsed-line)
+                         (when parsed-line
+                           (add-to-parsed-lines PARSED-LINES (car active-format) parsed-line)))
+                       active-formats
+                       active-formats-parsed-line))
+         done)))
 
 ;; XXX "Permission denied" containing lines must be ignored!
 ;; XXX Also "cannot open directory"
