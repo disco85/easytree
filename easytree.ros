@@ -463,9 +463,30 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Test ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (5am:def-suite :suite1 :description "EasyTree Test Suite")
 (5am:in-suite :suite1)
-(5am:test save-state--test1
-          (5am:is (equal (get-cons-with-longest-list '((1) (2))) '((1) (2)))))
+(5am:test get-cons-with-longest-list--test1
+          (5am:is (equal (get-cons-with-longest-list '((1) (2)))
+                         '((1) (2))))
 
+          (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12 13)))
+                         '((2 11 12 13))))
+
+          (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12)))
+                         '((1 2 3) (2 11 12))))
+
+          (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) ()))
+                         '((1 2 3) (2 11 12))))
+
+          (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3)))
+                         '((1 2 3) (2 11 12))))
+
+          (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4)))
+                         '((1 2 3) (2 11 12))))
+
+          (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4 5)))
+                         '((1 2 3) (2 11 12) (3 4 5))))
+
+          (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4 5 6)))
+                         '((3 4 5 6)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
