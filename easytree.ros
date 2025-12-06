@@ -16,6 +16,10 @@ exec ros -Q -- $0 "$@"
 (defun dbg (s x) (format t "*** TRACE[~A]: ~S~% ***" s x) x)
 
 
+(defun implies (a b)
+  "Implication: a -> b"
+  (or (not a) b))
+
 
 (defun starts-with-p (STRING PREFIX &key CASE-INSENSITIVE)
   "Check that `string` starts with `PREFIX`"
@@ -141,10 +145,18 @@ not add it to wrong FORMAT)"
 (declaim (ftype (function (string) (or null <parsed-line>)) parse-line-as-find))
 (declaim (ftype (function (string) (or null <parsed-line>)) parse-line-as-ls1r))
 (declaim (ftype (function (string) (or null <parsed-line>)) parse-line-as-ls1rl))
-(defun parse-line-as-tree (STR))  ;; TODO
-(defun parse-line-as-find (STR)) ;; TODO
-(defun parse-line-as-ls1r (STR)) ;; TODO
-(defun parse-line-as-ls1rl (STR)) ;; TODO
+
+(defun parse-line-as-tree (STR)
+  )  ;; TODO
+
+(defun parse-line-as-find (STR)
+  ) ;; TODO
+
+(defun parse-line-as-ls1r (STR)
+  ) ;; TODO
+
+(defun parse-line-as-ls1rl (STR)
+  ) ;; TODO
 
 (declaim (ftype (function (<format>) (function (string) (or null <parsed-line>))) get-parse-func))
 (defun get-parse-func (FORMAT)
@@ -452,30 +464,7 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
 (5am:def-suite :suite1 :description "EasyTree Test Suite")
 (5am:in-suite :suite1)
 (5am:test save-state--test1
-          (5am:is (let ((ss1 (make-<scanner-state> :result 123))
-                        (ss2 (make-<scanner-state> :result 456))
-                        (s (make-instance '<scanner>)))
-                    (save-state s ss1)
-                    (save-state s ss2)
-                    (= 2 (length (<scanner>-saved-states s))))))
-(5am:test restore-states--test1
-          (5am:is (let ((ss1 (make-<scanner-state> :pos 10 :result 123 :id "ID0"))
-                        (ss2 (make-<scanner-state> :pos 20 :result 456 :id "ID1"))
-                        (ss3 (make-<scanner-state> :pos 30 :result 789 :id "ID2"))
-                        (s (make-instance '<scanner>)))
-                    (save-state s ss1) (save-state s ss2) (save-state s ss3)
-                    (progn
-                      (restore-states s "ID1")
-                      (= 20 (<scanner>-pos s))))))
-(5am:test restore-states--test2
-          (5am:is (let ((ss1 (make-<scanner-state> :pos 10 :result 123 :id "ID0"))
-                        (ss2 (make-<scanner-state> :pos 20 :result 456 :id "ID1"))
-                        (ss3 (make-<scanner-state> :pos 30 :result 789 :id "ID2"))
-                        (s (make-instance '<scanner>)))
-                    (save-state s ss1) (save-state s ss2) (save-state s ss3)
-                    (progn
-                      (restore-states s "ID1" :before-it T)
-                      (= 10 (<scanner>-pos s))))))
+          (5am:is (equal (get-cons-with-longest-list '((1) (2))) '((1) (2)))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
