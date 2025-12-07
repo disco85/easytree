@@ -145,9 +145,15 @@ The item is looking for using a predicate function:
 CL-USER> (pop-until '(1 2 3 4 5) (lambda (x) (= x 1)) :include t)
 (2 3 4 5)
 "
-  (let ((pos (position-if pred stack)))
-    (when pos (subseq stack (if include (1+ pos) pos)))))
+  (let* ((pos (position-if pred stack))
+         (pos1 (when pos (if include (1+ pos) pos))))
+    (when pos (values (subseq stack pos1) pos1))))
 
+(defun eq-to (el &key (test #'equal))
+  "Returns a function comparing any value to `el` using a test function (default #'equal).
+It can be used together with (pop-until ...)
+"
+  (lambda (x) (funcall test el x)))
 
 (declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-tree))
 (declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-find))
@@ -157,7 +163,9 @@ CL-USER> (pop-until '(1 2 3 4 5) (lambda (x) (= x 1)) :include t)
 (defun parse-line-as-tree (PARSED-LINES STR)
   "Detects that the line looks as a line from `tree`-like output. Returns
   NIL (not `tree`-like line) or '((:spaces . <spaces-num-before-file-after-decoration>))"
-  (let ((i 0) (last-i (1- (length line))) (fname "") (fsobj :file)) ; TODO fsobj from /, depth
+  (let* ((i 0) (last-i (1- (length line))) (fname "") (fsobj :file) ; TODO fsobj from /, depth
+         (indents (<tree-state>-indents (<parsed-lines>-tree-state PARSED-LINES)))
+         (last-indent (car indents)))
     (when
         (and (> last-i 0)
              (char/= #\: (ch-at line last-i))
@@ -169,6 +177,11 @@ CL-USER> (pop-until '(1 2 3 4 5) (lambda (x) (= x 1)) :include t)
              (setf fname (subseq line i)))
       (make-<parsed-line> :format :tree :fname fname :fsobj fsobj)
       ;; (<tree-state>-indents (<parsed-lines>-tree-state PARSED-LINES))
+      ;; Pop indents until stacked indent = current indent (i) if the current indent < last-indent:
+      ;; TODO pop-until must return values (how many poped) and to use it to pop N fnames too
+      (when (and last-indent (< i last-indent))
+        (setf (<tree-state>-indents (<parsed-lines>-tree-state PARSED-LINES))
+              (pop-until indents (eq-to i))))
       )))
 
 (defun parse-line-as-find (PARSED-LINES STR)
@@ -196,7 +209,7 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
          (parse-funcs (mapcar #'get-parse-func
                               (mapcar #'car active-formats)))
          (active-formats-parsed-line
-           (mapcar (lambda (parse-func) (apply parse-func PARSED-LINES STR))
+           (mapcar (lambda (parse-func) (funcall parse-func PARSED-LINES STR))
                    parse-funcs))
          (done (mapcar (lambda (active-format parsed-line)
                          (when parsed-line
@@ -518,25 +531,44 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
                          '((3 4 5 6)))))
 
 (5am:test pop-until--test1
-          (5am:is (equal (pop-until '(1 2 3 4 5) (lambda (x) (= x 4))) '(4 5))))
+          (5am:is (equal (multiple-value-list
+                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 4))))
+                         '((4 5) 3))))
 
 (5am:test pop-until--test2
-          (5am:is (equal (pop-until '(1 2 3 4 5) (lambda (x) (= x 4)) :include t) '(5))))
+          (5am:is (equal (multiple-value-list
+                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 4)) :include t))
+                         '((5) 4))))
 
 (5am:test pop-until--test3
-          (5am:is (equal (pop-until '(1 2 3 4 5) (lambda (x) (= x 10)) :include t) nil)))
+          (5am:is (equal (multiple-value-list
+                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 10)) :include t))
+                         '(nil))))
 
 (5am:test pop-until--test4
-          (5am:is (equal (pop-until '(1 2 3 4 5) (lambda (x) (= x 5)) :include t) nil)))
+          (5am:is (equal (multiple-value-list
+                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 5)) :include t))
+                         '(nil 5))))
 
 (5am:test pop-until--test5
-          (5am:is (equal (pop-until '(1 2 3 4 5) (lambda (x) (= x 5))) '(5))))
+          (5am:is (equal (multiple-value-list
+                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 5))))
+                         '((5) 4))))
 
 (5am:test pop-until--test6
-          (5am:is (equal (pop-until '(1 2 3 4 5) (lambda (x) (= x 1))) '(1 2 3 4 5))))
+          (5am:is (equal (multiple-value-list
+                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 1))))
+                         '((1 2 3 4 5) 0))))
 
 (5am:test pop-until--test7
-          (5am:is (equal (pop-until '(1 2 3 4 5) (lambda (x) (= x 1)) :include t) '(2 3 4 5))))
+          (5am:is (equal (multiple-value-list
+                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 1)) :include t))
+                         '((2 3 4 5) 1))))
+
+(5am:test pop-until--test8
+          (5am:is (equal (multiple-value-list
+                          (pop-until '(1 2 3 4 5) (eq-to 3) :include t))
+                         '((4 5) 3))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
