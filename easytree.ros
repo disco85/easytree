@@ -49,13 +49,22 @@ exec ros -Q -- $0 "$@"
   (fmode 0 :type integer)
   (fsobj :file :type <fsobj>))
 
+(defstruct <tree-state>
+  ;; Stack of indents in a tree directory representation,it is not 1,2,3, but any integers
+  (indents nil
+   :type list)
+  ;; Stack of file/dir names in a tree directory representation
+  (fnames nil
+   :type list))
+
 (defstruct <parsed-lines>
-  (number 0 :type integer)
+  ;; (number 0 :type integer)
   (detected-format nil :type <format>)
   (as-tree nil :type list)  ;; list of <parsed-line>
   (as-find nil :type list)
   (as-ls1r nil :type list)
-  (as-ls1rl nil :type list))
+  (as-ls1rl nil :type list)
+  (tree-state nil :type <tree-state>))
 
 (declaim (ftype (function (<parsed-lines> <format>) list) get-parsed-lines))
 (defun get-parsed-lines (PARSED-LINES FORMAT)
@@ -68,22 +77,10 @@ exec ros -Q -- $0 "$@"
 (defun get-cons-with-longest-list (conses)
   "Returns a list of cons-es with the longest cdr:
 
-CL-USER> (get-cons-with-longest-list '((1) (2)))
-((1) (2))
 CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12 13)))
 ((2 11 12 13))
 CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12)))
 ((1 2 3) (2 11 12))
-CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12) ()))
-((1 2 3) (2 11 12))
-CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12) (3)))
-((1 2 3) (2 11 12))
-CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4)))
-((1 2 3) (2 11 12))
-CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4 5)))
-((1 2 3) (2 11 12) (3 4 5))
-CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4 5 6)))
-((3 4 5 6))
 "
   (reduce (lambda (res cons-i)
             (let* ((parsed-lines-i (cdr cons-i))
@@ -141,24 +138,49 @@ not add it to wrong FORMAT)"
 ;;                           results-to-add)))
 ;;     updated))
 
-(declaim (ftype (function (string) (or null <parsed-line>)) parse-line-as-tree))
-(declaim (ftype (function (string) (or null <parsed-line>)) parse-line-as-find))
-(declaim (ftype (function (string) (or null <parsed-line>)) parse-line-as-ls1r))
-(declaim (ftype (function (string) (or null <parsed-line>)) parse-line-as-ls1rl))
+(defun pop-until (stack pred &key include)
+  "Pops items from the head of the list (stack) optionally including the found item.
+The item is looking for using a predicate function:
 
-(defun parse-line-as-tree (STR)
-  )  ;; TODO
+CL-USER> (pop-until '(1 2 3 4 5) (lambda (x) (= x 1)) :include t)
+(2 3 4 5)
+"
+  (let ((pos (position-if pred stack)))
+    (when pos (subseq stack (if include (1+ pos) pos)))))
 
-(defun parse-line-as-find (STR)
+
+(declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-tree))
+(declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-find))
+(declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-ls1r))
+(declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-ls1rl))
+
+(defun parse-line-as-tree (PARSED-LINES STR)
+  "Detects that the line looks as a line from `tree`-like output. Returns
+  NIL (not `tree`-like line) or '((:spaces . <spaces-num-before-file-after-decoration>))"
+  (let ((i 0) (last-i (1- (length line))) (fname "") (fsobj :file)) ; TODO fsobj from /, depth
+    (when
+        (and (> last-i 0)
+             (char/= #\: (ch-at line last-i))
+             ;; skip chars that are not alphanumeric (decoration lines, spaces):
+             (loop :for ch = (ch-at line i)
+                   :while (< i last-i)
+                   :while (not (alphanumericp ch))
+                   :do (incf i))
+             (setf fname (subseq line i)))
+      (make-<parsed-line> :format :tree :fname fname :fsobj fsobj)
+      ;; (<tree-state>-indents (<parsed-lines>-tree-state PARSED-LINES))
+      )))
+
+(defun parse-line-as-find (PARSED-LINES STR)
   ) ;; TODO
 
-(defun parse-line-as-ls1r (STR)
+(defun parse-line-as-ls1r (PARSED-LINES STR)
   ) ;; TODO
 
-(defun parse-line-as-ls1rl (STR)
+(defun parse-line-as-ls1rl (PARSED-LINES STR)
   ) ;; TODO
 
-(declaim (ftype (function (<format>) (function (string) (or null <parsed-line>))) get-parse-func))
+(declaim (ftype (function (<format>) (function (<parsed-lines> string) (or null <parsed-line>))) get-parse-func))
 (defun get-parse-func (FORMAT)
   (ecase FORMAT
     (:tree parse-line-as-tree)
@@ -174,7 +196,7 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
          (parse-funcs (mapcar #'get-parse-func
                               (mapcar #'car active-formats)))
          (active-formats-parsed-line
-           (mapcar (lambda (parse-func) (apply parse-func STR))
+           (mapcar (lambda (parse-func) (apply parse-func PARSED-LINES STR))
                    parse-funcs))
          (done (mapcar (lambda (active-format parsed-line)
                          (when parsed-line
@@ -465,28 +487,56 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
 (5am:in-suite :suite1)
 (5am:test get-cons-with-longest-list--test1
           (5am:is (equal (get-cons-with-longest-list '((1) (2)))
-                         '((1) (2))))
+                         '((1) (2)))))
 
+(5am:test get-cons-with-longest-list--test1
           (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12 13)))
-                         '((2 11 12 13))))
+                         '((2 11 12 13)))))
 
+(5am:test get-cons-with-longest-list--test2
           (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12)))
-                         '((1 2 3) (2 11 12))))
+                         '((1 2 3) (2 11 12)))))
 
+(5am:test get-cons-with-longest-list--test3
           (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) ()))
-                         '((1 2 3) (2 11 12))))
+                         '((1 2 3) (2 11 12)))))
 
+(5am:test get-cons-with-longest-list--test4
           (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3)))
-                         '((1 2 3) (2 11 12))))
+                         '((1 2 3) (2 11 12)))))
 
+(5am:test get-cons-with-longest-list--test5
           (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4)))
-                         '((1 2 3) (2 11 12))))
+                         '((1 2 3) (2 11 12)))))
 
+(5am:test get-cons-with-longest-list--test6
           (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4 5)))
-                         '((1 2 3) (2 11 12) (3 4 5))))
+                         '((1 2 3) (2 11 12) (3 4 5)))))
 
+(5am:test get-cons-with-longest-list--test7
           (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4 5 6)))
                          '((3 4 5 6)))))
+
+(5am:test pop-until--test1
+          (5am:is (equal (pop-until '(1 2 3 4 5) (lambda (x) (= x 4))) '(4 5))))
+
+(5am:test pop-until--test2
+          (5am:is (equal (pop-until '(1 2 3 4 5) (lambda (x) (= x 4)) :include t) '(5))))
+
+(5am:test pop-until--test3
+          (5am:is (equal (pop-until '(1 2 3 4 5) (lambda (x) (= x 10)) :include t) nil)))
+
+(5am:test pop-until--test4
+          (5am:is (equal (pop-until '(1 2 3 4 5) (lambda (x) (= x 5)) :include t) nil)))
+
+(5am:test pop-until--test5
+          (5am:is (equal (pop-until '(1 2 3 4 5) (lambda (x) (= x 5))) '(5))))
+
+(5am:test pop-until--test6
+          (5am:is (equal (pop-until '(1 2 3 4 5) (lambda (x) (= x 1))) '(1 2 3 4 5))))
+
+(5am:test pop-until--test7
+          (5am:is (equal (pop-until '(1 2 3 4 5) (lambda (x) (= x 1)) :include t) '(2 3 4 5))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
