@@ -50,7 +50,9 @@ exec ros -Q -- $0 "$@"
   (fsobj :file :type <fsobj>))
 
 (defstruct <tree-state>
-  ;; Stack of indents in a tree directory representation,it is not 1,2,3, but any integers
+  ;; Stack of indents in a tree directory representation,it is not 1,2,3, but any integers.
+  ;; It's a list, not just one integer, bcs we can decrease depth from 30 to 12 and, if it
+  ;; is an integer, we cannot know how many dirs we exited: one 30->12, two 30->20->12, ...
   (indents nil
    :type list)
   ;; Stack of file/dir names in a tree directory representation
@@ -155,6 +157,19 @@ It can be used together with (pop-until ...)
 "
   (lambda (x) (funcall test el x)))
 
+
+(defun append-to-path (entries entry &key sep)
+  "Append dir/file `entry` to a list of dirs `entries` optionally using
+a path separator `sep` (default: /), returns result string"
+  (reduce (lambda (e1 e2) (concatenate 'string e1 (or sep "/") e2))
+          (append entries (list entry))))
+
+(defun to-path (entries &key sep)
+  "Converts dir/file entries to a string using optional path separator `sep` (default: /)"
+  (reduce (lambda (e1 e2) (concatenate 'string e1 (or sep "/") e2))
+          entries))
+
+
 (declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-tree))
 (declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-find))
 (declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-ls1r))
@@ -163,9 +178,7 @@ It can be used together with (pop-until ...)
 (defun parse-line-as-tree (PARSED-LINES STR)
   "Detects that the line looks as a line from `tree`-like output. Returns
   NIL (not `tree`-like line) or '((:spaces . <spaces-num-before-file-after-decoration>))"
-  (let* ((i 0) (last-i (1- (length line))) (fname "") (fsobj :file) ; TODO fsobj from /, depth
-         (indents (<tree-state>-indents (<parsed-lines>-tree-state PARSED-LINES)))
-         (last-indent (car indents)))
+  (let* ((i 0) (last-i (1- (length line))) (fname ""))
     (when
         (and (> last-i 0)
              (char/= #\: (ch-at line last-i))
@@ -175,14 +188,31 @@ It can be used together with (pop-until ...)
                    :while (not (alphanumericp ch))
                    :do (incf i))
              (setf fname (subseq line i)))
-      (make-<parsed-line> :format :tree :fname fname :fsobj fsobj)
-      ;; (<tree-state>-indents (<parsed-lines>-tree-state PARSED-LINES))
-      ;; Pop indents until stacked indent = current indent (i) if the current indent < last-indent:
-      ;; TODO pop-until must return values (how many poped) and to use it to pop N fnames too
-      (when (and last-indent (< i last-indent))
-        (setf (<tree-state>-indents (<parsed-lines>-tree-state PARSED-LINES))
-              (pop-until indents (eq-to i))))
-      )))
+      ((symbol-macrolet
+           ((state-indents (<tree-state>-indents (<parsed-lines>-tree-state PARSED-LINES)))
+            (state-fnames (<tree-state>-fnames (<parsed-lines>-tree-state PARSED-LINES)))
+            (last-state-indent (car state-indents)))
+         (when last-state-indent
+           ;; depth decreased, so I have to pop items from the tree-state:
+           ;; Pop indents until stacked indent = current indent (i) if the current indent < last-state-indent:
+           (cond
+             ((< i last-state-indent)
+              (multiple-value-bind (new-indents poped-num) (pop-until state-indents (eq-to i))
+                (when poped-num ;; when poped to existing indent ;; TODO what if we return to the zero-indent?
+                  (setf state-indents new-indents)
+                  (setf state-fnames (subseq state-fnames poped-num))
+                  (setf fname (append-to-path state-fnames fname)) ;; fname is a/b/c now
+                  ;; TODO find fsobj if fname ends with #\/ - but conditionally
+                  ;; TODO if <parsed-lines>-dir-from-final-slash (add this slot to <parsed-lines>)
+                  (make-<parsed-line> :format :tree :fname fname :fsobj :file))))
+             ((> i last-state-indent)
+              ;; TODO last parsed-line must be marked as dir
+              (setf state-indents (cons i state-indents))
+              (setf state-fnames (cons fname state-fnames))
+              (setf fname (to-path state-fnames)) ;; fname is a/b/c now
+              (make-<parsed-line> :format :tree :fname fname :fsobj :file))
+             ((= i last-state-indent)
+              (NIL)))))))))
 
 (defun parse-line-as-find (PARSED-LINES STR)
   ) ;; TODO
@@ -499,76 +529,94 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
 (5am:def-suite :suite1 :description "EasyTree Test Suite")
 (5am:in-suite :suite1)
 (5am:test get-cons-with-longest-list--test1
-          (5am:is (equal (get-cons-with-longest-list '((1) (2)))
-                         '((1) (2)))))
+  (5am:is (equal (get-cons-with-longest-list '((1) (2)))
+                 '((1) (2)))))
 
 (5am:test get-cons-with-longest-list--test1
-          (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12 13)))
-                         '((2 11 12 13)))))
+  (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12 13)))
+                 '((2 11 12 13)))))
 
 (5am:test get-cons-with-longest-list--test2
-          (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12)))
-                         '((1 2 3) (2 11 12)))))
+  (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12)))
+                 '((1 2 3) (2 11 12)))))
 
 (5am:test get-cons-with-longest-list--test3
-          (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) ()))
-                         '((1 2 3) (2 11 12)))))
+  (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) ()))
+                 '((1 2 3) (2 11 12)))))
 
 (5am:test get-cons-with-longest-list--test4
-          (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3)))
-                         '((1 2 3) (2 11 12)))))
+  (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3)))
+                 '((1 2 3) (2 11 12)))))
 
 (5am:test get-cons-with-longest-list--test5
-          (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4)))
-                         '((1 2 3) (2 11 12)))))
+  (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4)))
+                 '((1 2 3) (2 11 12)))))
 
 (5am:test get-cons-with-longest-list--test6
-          (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4 5)))
-                         '((1 2 3) (2 11 12) (3 4 5)))))
+  (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4 5)))
+                 '((1 2 3) (2 11 12) (3 4 5)))))
 
 (5am:test get-cons-with-longest-list--test7
-          (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4 5 6)))
-                         '((3 4 5 6)))))
+  (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4 5 6)))
+                 '((3 4 5 6)))))
 
 (5am:test pop-until--test1
-          (5am:is (equal (multiple-value-list
-                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 4))))
-                         '((4 5) 3))))
+  (5am:is (equal (multiple-value-list
+                  (pop-until '(1 2 3 4 5) (lambda (x) (= x 4))))
+                 '((4 5) 3))))
 
 (5am:test pop-until--test2
-          (5am:is (equal (multiple-value-list
-                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 4)) :include t))
-                         '((5) 4))))
+  (5am:is (equal (multiple-value-list
+                  (pop-until '(1 2 3 4 5) (lambda (x) (= x 4)) :include t))
+                 '((5) 4))))
 
 (5am:test pop-until--test3
-          (5am:is (equal (multiple-value-list
-                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 10)) :include t))
-                         '(nil))))
+  (5am:is (equal (multiple-value-list
+                  (pop-until '(1 2 3 4 5) (lambda (x) (= x 10)) :include t))
+                 '(nil))))
 
 (5am:test pop-until--test4
-          (5am:is (equal (multiple-value-list
-                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 5)) :include t))
-                         '(nil 5))))
+  (5am:is (equal (multiple-value-list
+                  (pop-until '(1 2 3 4 5) (lambda (x) (= x 5)) :include t))
+                 '(nil 5))))
 
 (5am:test pop-until--test5
-          (5am:is (equal (multiple-value-list
-                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 5))))
-                         '((5) 4))))
+  (5am:is (equal (multiple-value-list
+                  (pop-until '(1 2 3 4 5) (lambda (x) (= x 5))))
+                 '((5) 4))))
 
 (5am:test pop-until--test6
-          (5am:is (equal (multiple-value-list
-                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 1))))
-                         '((1 2 3 4 5) 0))))
+  (5am:is (equal (multiple-value-list
+                  (pop-until '(1 2 3 4 5) (lambda (x) (= x 1))))
+                 '((1 2 3 4 5) 0))))
 
 (5am:test pop-until--test7
-          (5am:is (equal (multiple-value-list
-                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 1)) :include t))
-                         '((2 3 4 5) 1))))
+  (5am:is (equal (multiple-value-list
+                  (pop-until '(1 2 3 4 5) (lambda (x) (= x 1)) :include t))
+                 '((2 3 4 5) 1))))
 
 (5am:test pop-until--test8
-          (5am:is (equal (multiple-value-list
-                          (pop-until '(1 2 3 4 5) (eq-to 3) :include t))
-                         '((4 5) 3))))
+  (5am:is (equal (multiple-value-list
+                  (pop-until '(1 2 3 4 5) (eq-to 3) :include t))
+                 '((4 5) 3))))
+
+(5am:test append-to-path--test1
+  (5am:is (equal (append-to-path '("aa" "bb") "cc")
+                 "aa/bb/cc")))
+
+(5am:test append-to-path--test2
+  (5am:is (equal (append-to-path '("aa" "bb") "cc" :sep "#")
+                 "aa#bb#cc")))
+
+(5am:test to-path--test1
+  (5am:is (equal (to-path '("aaa" "bbb"))
+                 "aaa/bbb")))
+
+(5am:test to-path--test2
+  (5am:is (equal (to-path '("aaa" "bbb") :sep "!")
+                 "aaa!bbb")))
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
