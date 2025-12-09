@@ -30,7 +30,11 @@ exec ros -Q -- $0 "$@"
 
 
 (defun ch-at (STRING I)
-  (if (or (>= I (length STRING)) (< I 0)) nil (char STRING I)))
+  (let ((len (length STRING)))
+    (cond
+      ((or (< I (- len)) (>= I len)) nil)
+      ((< I 0) (char STRING (+ len I)))
+      (t (char STRING I)))))
 
 
 (deftype <fsobj> () '(member :file :dir))
@@ -62,6 +66,7 @@ exec ros -Q -- $0 "$@"
 (defstruct <parsed-lines>
   ;; (number 0 :type integer)
   (detected-format nil :type <format>)
+  (dir-from-final-slash t :type boolean)
   (as-tree nil :type list)  ;; list of <parsed-line>
   (as-find nil :type list)
   (as-ls1r nil :type list)
@@ -178,7 +183,7 @@ a path separator `sep` (default: /), returns result string"
 (defun parse-line-as-tree (PARSED-LINES STR)
   "Detects that the line looks as a line from `tree`-like output. Returns
   NIL (not `tree`-like line) or '((:spaces . <spaces-num-before-file-after-decoration>))"
-  (let* ((i 0) (last-i (1- (length line))) (fname ""))
+  (let* ((i 0) (j 0) (last-i (1- (length line))) (fname "")) ;; TODO Rename i,j
     (when
         (and (> last-i 0)
              (char/= #\: (ch-at line last-i))
@@ -188,6 +193,14 @@ a path separator `sep` (default: /), returns result string"
                    :while (not (alphanumericp ch))
                    :do (incf i))
              (setf fname (subseq line i)))
+      (loop :initially (setf j last-i)
+            :for ch = (ch-at line j)
+            :until (alphanumericp ch)
+            :do (decf j)
+            :finally (if (= j last-i) (setf j nil) (incf j))) ;; j=NIL|1st non-alphanum after fname
+      (if j
+          (setf fname (subseq line i j))  ;; w/o non-alphanum at the end
+          (setf fname (subseq line i)))
       ((symbol-macrolet
            ((state-indents (<tree-state>-indents (<parsed-lines>-tree-state PARSED-LINES)))
             (state-fnames (<tree-state>-fnames (<parsed-lines>-tree-state PARSED-LINES)))
@@ -212,7 +225,8 @@ a path separator `sep` (default: /), returns result string"
               (setf fname (to-path state-fnames)) ;; fname is a/b/c now
               (make-<parsed-line> :format :tree :fname fname :fsobj :file))
              ((= i last-state-indent)
-              (NIL)))))))))
+              (setf fname (append-to-path state-fnames fname))  ;; fname is a/b/c now
+              (make-<parsed-line> :format :tree :fname fname :fsobj :file)))))))))
 
 (defun parse-line-as-find (PARSED-LINES STR)
   ) ;; TODO
