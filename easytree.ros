@@ -32,6 +32,7 @@ exec ros -Q -- $0 "$@"
 (defun ch-at (STRING I)
   (let ((len (length STRING)))
     (cond
+      ((null I) nil)
       ((or (< I (- len)) (>= I len)) nil)
       ((< I 0) (char STRING (+ len I)))
       (t (char STRING I)))))
@@ -57,11 +58,9 @@ exec ros -Q -- $0 "$@"
   ;; Stack of indents in a tree directory representation,it is not 1,2,3, but any integers.
   ;; It's a list, not just one integer, bcs we can decrease depth from 30 to 12 and, if it
   ;; is an integer, we cannot know how many dirs we exited: one 30->12, two 30->20->12, ...
-  (indents nil
-   :type list)
+  (indents nil :type list)
   ;; Stack of file/dir names in a tree directory representation
-  (fnames nil
-   :type list))
+  (fnames nil :type list))
 
 (defstruct <parsed-lines>
   ;; (number 0 :type integer)
@@ -119,12 +118,24 @@ in a form (<format> . lines-list)"
     (:ls1r (setf (<parsed-lines>-as-ls1r PARSED-LINES) NEW-VALUE))
     (:ls1rl (setf (<parsed-lines>-as-ls1rl PARSED-LINES) NEW-VALUE))))
 
+;; TODO instead of set-parsed-lines - rplaca/nconc can be used over `lines` in add-to-parsed-lines, modify-last-parsed-line
+
 (declaim (ftype (function (<parsed-lines> <format> <parsed-line>) list) add-to-parsed-lines))
 (defun add-to-parsed-lines (PARSED-LINES FORMAT PARSED-LINE)
   "Adds a <parsed-line> to <parsed-lines> FORMAT (relies on a callee that it will
 not add it to wrong FORMAT)"
   (let* ((lines (get-parsed-lines PARSED-LINES FORMAT))
          (new-lines (append lines (list PARSED-LINE))))
+    (set-parsed-lines PARSED-LINES FORMAT new-lines)))
+
+(declaim (ftype (function (<parsed-lines> <format> (function (<parsed-line>) <parsed-line>)) list) modify-last-parsed-line))
+(defun modify-last-parsed-line (PARSED-LINES FORMAT MOD-FUNC)
+  "Modifies a <parsed-line> in <parsed-lines> of a FORMAT by a function MOD-FUNC"
+  (let* ((lines (get-parsed-lines PARSED-LINES FORMAT))
+         (last-parsed-line (car (last lines)))
+         (new-lines (if last-parsed-line
+                        (append (butlast lines) (list (funcall MOD-FUNC last-parsed-line)))
+                        lines)))
     (set-parsed-lines PARSED-LINES FORMAT new-lines)))
 
 ;; (declaim (ftype (function (<parsed-lines> list) (or null list)) add-to-actively-parsed-lines))
@@ -180,19 +191,46 @@ a path separator `sep` (default: /), returns result string"
 (declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-ls1r))
 (declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-ls1rl))
 
+(defun markup-line-as-tree (STR)
+  "Marks up STR possibly looking as a line from `tree`-like output. Returns
+  NIL (not `tree`-like line) or alist (('fname . file-name) ('non-alphanum-after-fname . index-or-NIL))"
+  (let ((last-i (1- (length STR))) (i 0) (j 0) (fname ""))
+    (when
+        (and (> last-i 0)
+             (char/= #\: (ch-at STR last-i)))  ;; TODO rstrip(STR) first!
+      ;; skip chars that are not alphanum (decoration lines, spaces):
+      (loop :initially (setf i 0)
+            :for ch = (ch-at STR i)
+            :while (< i last-i)
+            :while (not (alphanumericp ch))
+            :do (incf i))
+      ;; take all alphanum of `fname` and stop on the first non-alphanum:
+      (loop :initially (setf j last-i)
+            :for ch = (ch-at STR j)
+            :until (alphanumericp ch)
+            :do (decf j)
+            :finally (if (= j last-i) (setf j nil) (incf j))) ;; j=NIL|1st non-alphanum after fname
+      (if j
+          (setf fname (subseq STR i j))  ;; w/o non-alphanum at the end
+          (setf fname (subseq STR i)))
+      `((fname . ,fname) (non-alphanum-after-fname . ,j)))))
+
+
+
 (defun parse-line-as-tree (PARSED-LINES STR)
   "Detects that the line looks as a line from `tree`-like output. Returns
-  NIL (not `tree`-like line) or '((:spaces . <spaces-num-before-file-after-decoration>))"
+  NIL (not `tree`-like line) or TODO"
   (let* ((i 0) (j 0) (last-i (1- (length line))) (fname "")) ;; TODO Rename i,j
     (when
         (and (> last-i 0)
              (char/= #\: (ch-at line last-i))
-             ;; skip chars that are not alphanumeric (decoration lines, spaces):
+             ;; skip chars that are not alphanum (decoration lines, spaces):
              (loop :for ch = (ch-at line i)
                    :while (< i last-i)
                    :while (not (alphanumericp ch))
                    :do (incf i))
              (setf fname (subseq line i)))
+      ;; take all alphanum of `fname` and stop on the first non-alphanum:
       (loop :initially (setf j last-i)
             :for ch = (ch-at line j)
             :until (alphanumericp ch)
@@ -201,32 +239,40 @@ a path separator `sep` (default: /), returns result string"
       (if j
           (setf fname (subseq line i j))  ;; w/o non-alphanum at the end
           (setf fname (subseq line i)))
-      ((symbol-macrolet
+      ((symbol-macrolet ;; XXX "let" working as #define (macro-substitution), so save setf-ability
            ((state-indents (<tree-state>-indents (<parsed-lines>-tree-state PARSED-LINES)))
             (state-fnames (<tree-state>-fnames (<parsed-lines>-tree-state PARSED-LINES)))
             (last-state-indent (car state-indents)))
          (when last-state-indent
-           ;; depth decreased, so I have to pop items from the tree-state:
-           ;; Pop indents until stacked indent = current indent (i) if the current indent < last-state-indent:
+           ;; set fsobj to :dir/:file from the trailing / if it is allowed:
+           (if (and (<parsed-lines>-dir-from-final-slash PARSED-LINES)
+                    j
+                    (char= #\/ (ch-at line j)))
+               (setf fsobj :dir)
+               (setf fsobj :file))
            (cond
              ((< i last-state-indent)
+              ;; depth decreased, so I have to pop items from the tree-state:
+              ;; pop indents until stacked indent = current indent (i) if the current indent < last-state-indent:
               (multiple-value-bind (new-indents poped-num) (pop-until state-indents (eq-to i))
                 (when poped-num ;; when poped to existing indent ;; TODO what if we return to the zero-indent?
                   (setf state-indents new-indents)
                   (setf state-fnames (subseq state-fnames poped-num))
                   (setf fname (append-to-path state-fnames fname)) ;; fname is a/b/c now
-                  ;; TODO find fsobj if fname ends with #\/ - but conditionally
-                  ;; TODO if <parsed-lines>-dir-from-final-slash (add this slot to <parsed-lines>)
-                  (make-<parsed-line> :format :tree :fname fname :fsobj :file))))
+                  (make-<parsed-line> :format :tree :fname fname :fsobj fsobj))))
              ((> i last-state-indent)
-              ;; TODO last parsed-line must be marked as dir
+              ;; set my (:tree) last parsed line's `fsobj` to :dir - we enter deeper (coz i > last-state-indent):
+              (modify-last-parsed-line PARSED-LINES
+                                       :tree
+                                       (lambda (last-parsed-line) (setf (<parsed-line>-fsobj last-parsed-line)
+                                                                        :dir)))
               (setf state-indents (cons i state-indents))
               (setf state-fnames (cons fname state-fnames))
               (setf fname (to-path state-fnames)) ;; fname is a/b/c now
-              (make-<parsed-line> :format :tree :fname fname :fsobj :file))
+              (make-<parsed-line> :format :tree :fname fname :fsobj fsobj))
              ((= i last-state-indent)
               (setf fname (append-to-path state-fnames fname))  ;; fname is a/b/c now
-              (make-<parsed-line> :format :tree :fname fname :fsobj :file)))))))))
+              (make-<parsed-line> :format :tree :fname fname :fsobj fsobj)))))))))
 
 (defun parse-line-as-find (PARSED-LINES STR)
   ) ;; TODO
@@ -630,6 +676,19 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
   (5am:is (equal (to-path '("aaa" "bbb") :sep "!")
                  "aaa!bbb")))
 
+(5am:test markup-line-as-tree--test1
+  (5am:is (equal (markup-line-as-tree "") nil)))
+
+(5am:test markup-line-as-tree--test2
+          (5am:is (equal (markup-line-as-tree "file") '((fname . "file") (non-alphanum-after-fname)))))
+
+(5am:test markup-line-as-tree--test3
+          (5am:is (equal (markup-line-as-tree "  +---file")
+                         '((fname . "file") (non-alphanum-after-fname)))))
+
+(5am:test markup-line-as-tree--test4
+          (5am:is (equal (markup-line-as-tree "  +--- file/")
+                         '((fname . "file") (non-alphanum-after-fname . 11)))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
