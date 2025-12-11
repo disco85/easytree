@@ -202,18 +202,21 @@ a path separator `sep` (default: /), returns result string"
       (loop :initially (setf i 0)
             :for ch = (ch-at STR i)
             :while (< i last-i)
-            :while (not (alphanumericp ch))
+            :until (alphanumericp ch)
             :do (incf i))
-      ;; take all alphanum of `fname` and stop on the first non-alphanum:
+      ;; take all alphanum of `fname` and stop on the first non-alphanum after `fname` (ignoring spaces):
       (loop :initially (setf j last-i)
             :for ch = (ch-at STR j)
             :until (alphanumericp ch)
             :do (decf j)
-            :finally (if (= j last-i) (setf j nil) (incf j))) ;; j=NIL|1st non-alphanum after fname
+            :finally (if (= j last-i)
+                         (setf j nil)
+                         (incf j))) ;; j=NIL|1st non-alphanum after fname
       (if j
           (setf fname (subseq STR i j))  ;; w/o non-alphanum at the end
           (setf fname (subseq STR i)))
-      `((fname . ,fname) (non-alphanum-after-fname . ,j)))))
+      `((fname . ,fname)
+        (non-alphanum-after-fname . ,(unless (member (ch-at STR j) *unicode-whitespace-chars*) j))))))
 
 
 
@@ -589,105 +592,106 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
 (5am:def-suite :suite1 :description "EasyTree Test Suite")
 (5am:in-suite :suite1)
 (5am:test get-cons-with-longest-list--test1
-  (5am:is (equal (get-cons-with-longest-list '((1) (2)))
-                 '((1) (2)))))
+          (5am:is (equal '((1) (2))
+                         (get-cons-with-longest-list '((1) (2))))))
 
 (5am:test get-cons-with-longest-list--test1
-  (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12 13)))
-                 '((2 11 12 13)))))
+          (5am:is (equal '((2 11 12 13))
+                         (get-cons-with-longest-list '((1 2 3) (2 11 12 13))))))
 
 (5am:test get-cons-with-longest-list--test2
-  (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12)))
-                 '((1 2 3) (2 11 12)))))
+          (5am:is (equal '((1 2 3) (2 11 12))
+                         (get-cons-with-longest-list '((1 2 3) (2 11 12))))))
 
 (5am:test get-cons-with-longest-list--test3
-  (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) ()))
-                 '((1 2 3) (2 11 12)))))
+          (5am:is (equal '((1 2 3) (2 11 12))
+                         (get-cons-with-longest-list '((1 2 3) (2 11 12) ()))))) ;; () == nil
 
 (5am:test get-cons-with-longest-list--test4
-  (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3)))
-                 '((1 2 3) (2 11 12)))))
+          (5am:is (equal '((1 2 3) (2 11 12))
+                         (get-cons-with-longest-list '((1 2 3) (2 11 12) (3))))))
 
 (5am:test get-cons-with-longest-list--test5
-  (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4)))
-                 '((1 2 3) (2 11 12)))))
+          (5am:is (equal '((1 2 3) (2 11 12))
+                         (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4))))))
 
 (5am:test get-cons-with-longest-list--test6
-  (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4 5)))
-                 '((1 2 3) (2 11 12) (3 4 5)))))
+          (5am:is (equal '((1 2 3) (2 11 12) (3 4 5))
+                         (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4 5))))))
 
 (5am:test get-cons-with-longest-list--test7
-  (5am:is (equal (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4 5 6)))
-                 '((3 4 5 6)))))
+          (5am:is (equal '((3 4 5 6))
+                         (get-cons-with-longest-list '((1 2 3) (2 11 12) (3 4 5 6))))))
 
 (5am:test pop-until--test1
-  (5am:is (equal (multiple-value-list
-                  (pop-until '(1 2 3 4 5) (lambda (x) (= x 4))))
-                 '((4 5) 3))))
+          (5am:is (equal '((4 5) 3)
+                         (multiple-value-list
+                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 4)))))))
 
 (5am:test pop-until--test2
-  (5am:is (equal (multiple-value-list
-                  (pop-until '(1 2 3 4 5) (lambda (x) (= x 4)) :include t))
-                 '((5) 4))))
+          (5am:is (equal '((5) 4)
+                         (multiple-value-list
+                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 4)) :include t)))))
 
 (5am:test pop-until--test3
-  (5am:is (equal (multiple-value-list
-                  (pop-until '(1 2 3 4 5) (lambda (x) (= x 10)) :include t))
-                 '(nil))))
+          (5am:is (equal '(nil)
+                         (multiple-value-list
+                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 10)) :include t)))))
 
 (5am:test pop-until--test4
-  (5am:is (equal (multiple-value-list
-                  (pop-until '(1 2 3 4 5) (lambda (x) (= x 5)) :include t))
-                 '(nil 5))))
+          (5am:is (equal '(nil 5)
+                         (multiple-value-list
+                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 5)) :include t)))))
 
 (5am:test pop-until--test5
-  (5am:is (equal (multiple-value-list
-                  (pop-until '(1 2 3 4 5) (lambda (x) (= x 5))))
-                 '((5) 4))))
+          (5am:is (equal '((5) 4)
+                         (multiple-value-list
+                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 5)))))))
 
 (5am:test pop-until--test6
-  (5am:is (equal (multiple-value-list
-                  (pop-until '(1 2 3 4 5) (lambda (x) (= x 1))))
-                 '((1 2 3 4 5) 0))))
+          (5am:is (equal '((1 2 3 4 5) 0)
+                         (multiple-value-list
+                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 1)))))))
 
 (5am:test pop-until--test7
-  (5am:is (equal (multiple-value-list
-                  (pop-until '(1 2 3 4 5) (lambda (x) (= x 1)) :include t))
-                 '((2 3 4 5) 1))))
+          (5am:is (equal '((2 3 4 5) 1)
+                         (multiple-value-list
+                          (pop-until '(1 2 3 4 5) (lambda (x) (= x 1)) :include t)))))
 
 (5am:test pop-until--test8
-  (5am:is (equal (multiple-value-list
-                  (pop-until '(1 2 3 4 5) (eq-to 3) :include t))
-                 '((4 5) 3))))
+          (5am:is (equal '((4 5) 3)
+                         (multiple-value-list
+                          (pop-until '(1 2 3 4 5) (eq-to 3) :include t)))))
 
 (5am:test append-to-path--test1
-  (5am:is (equal (append-to-path '("aa" "bb") "cc")
-                 "aa/bb/cc")))
+          (5am:is (equal "aa/bb/cc"
+                         (append-to-path '("aa" "bb") "cc"))))
 
 (5am:test append-to-path--test2
-  (5am:is (equal (append-to-path '("aa" "bb") "cc" :sep "#")
-                 "aa#bb#cc")))
+          (5am:is (equal "aa#bb#cc"
+                         (append-to-path '("aa" "bb") "cc" :sep "#"))))
 
 (5am:test to-path--test1
-  (5am:is (equal (to-path '("aaa" "bbb"))
-                 "aaa/bbb")))
+          (5am:is (equal "aaa/bbb"
+                         (to-path '("aaa" "bbb")))))
 
 (5am:test to-path--test2
-  (5am:is (equal (to-path '("aaa" "bbb") :sep "!")
-                 "aaa!bbb")))
+          (5am:is (equal "aaa!bbb" (to-path '("aaa" "bbb") :sep "!"))))
 
 (5am:test markup-line-as-tree--test1
-  (5am:is (equal (markup-line-as-tree "") nil)))
+  (5am:is (equal nil (markup-line-as-tree ""))))
 
 (5am:test markup-line-as-tree--test2
-          (5am:is (equal (markup-line-as-tree "file") '((fname . "file") (non-alphanum-after-fname)))))
+          (5am:is (equal '((fname . "file") (non-alphanum-after-fname))
+                         (markup-line-as-tree "file  "))))
 
 (5am:test markup-line-as-tree--test3
-          (5am:is (equal (markup-line-as-tree "  +---file")
-                         '((fname . "file") (non-alphanum-after-fname)))))
+          (5am:is (equal
+                   '((fname . "file") (non-alphanum-after-fname))
+                   (markup-line-as-tree "  +---file   "))))
 
 (5am:test markup-line-as-tree--test4
-          (5am:is (equal (markup-line-as-tree "  +--- file/")
+          (5am:is (equal (markup-line-as-tree "  +--- file/  ")
                          '((fname . "file") (non-alphanum-after-fname . 11)))))
 
 
