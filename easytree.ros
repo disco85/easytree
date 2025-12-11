@@ -193,11 +193,12 @@ a path separator `sep` (default: /), returns result string"
 
 (defun markup-line-as-tree (STR)
   "Marks up STR possibly looking as a line from `tree`-like output. Returns
-  NIL (not `tree`-like line) or alist (('fname . file-name) ('non-alphanum-after-fname . index-or-NIL))"
+  NIL (not `tree`-like line) or alist:
+'((fname . file-name) (fname-start . index-of-fname) (fname-stop . index-or-NIL))"
   (let ((last-i (1- (length STR))) (i 0) (j 0) (fname ""))
     (when
         (and (> last-i 0)
-             (char/= #\: (ch-at STR last-i)))  ;; TODO rstrip(STR) first!
+             (char/= #\: (ch-at STR last-i)))
       ;; skip chars that are not alphanum (decoration lines, spaces):
       (loop :initially (setf i 0)
             :for ch = (ch-at STR i)
@@ -216,7 +217,8 @@ a path separator `sep` (default: /), returns result string"
           (setf fname (subseq STR i j))  ;; w/o non-alphanum at the end
           (setf fname (subseq STR i)))
       `((fname . ,fname)
-        (non-alphanum-after-fname . ,(unless (member (ch-at STR j) *unicode-whitespace-chars*) j))))))
+        (fname-start . ,i)
+        (fname-stop . ,(unless (member (ch-at STR j) *unicode-whitespace-chars*) j))))))
 
 
 
@@ -679,20 +681,20 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
           (5am:is (equal "aaa!bbb" (to-path '("aaa" "bbb") :sep "!"))))
 
 (5am:test markup-line-as-tree--test1
-  (5am:is (equal nil (markup-line-as-tree ""))))
+          (5am:is (equal nil (markup-line-as-tree ""))))
 
 (5am:test markup-line-as-tree--test2
-          (5am:is (equal '((fname . "file") (non-alphanum-after-fname))
+          (5am:is (equal '((fname . "file") (fname-start . 0) (fname-stop))
                          (markup-line-as-tree "file  "))))
 
 (5am:test markup-line-as-tree--test3
           (5am:is (equal
-                   '((fname . "file") (non-alphanum-after-fname))
+                   '((fname . "file") (fname-start . 6) (fname-stop))
                    (markup-line-as-tree "  +---file   "))))
 
 (5am:test markup-line-as-tree--test4
-          (5am:is (equal (markup-line-as-tree "  +--- file/  ")
-                         '((fname . "file") (non-alphanum-after-fname . 11)))))
+          (5am:is (equal '((fname . "file") (fname-start . 7) (fname-stop . 11))
+                         (markup-line-as-tree "  +--- file/  "))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
