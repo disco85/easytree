@@ -13,7 +13,8 @@ exec ros -Q -- $0 "$@"
 (in-package :ros.script.easytree)
 
 
-(defun dbg (s x) (format t "*** TRACE[~A]: ~S~% ***" s x) x)
+(defvar *dbg-cond* nil)
+(defun dbg (s &optional (x nil)) (when *dbg-cond* (format t "~%*** TRACE[~A]: ~S~% ***~%" s x)) x)
 
 
 (defun implies (a b)
@@ -29,6 +30,7 @@ exec ros -Q -- $0 "$@"
            (string= PREFIX (subseq STRING 0 (length PREFIX)) :start1 0 :start2 0))))
 
 
+(declaim (ftype (function (string (or null integer)) (or null character)) ch-at))
 (defun ch-at (STRING I)
   (let ((len (length STRING)))
     (cond
@@ -126,6 +128,7 @@ in a form (<format> . lines-list)"
 not add it to wrong FORMAT)"
   (let* ((lines (get-parsed-lines PARSED-LINES FORMAT))
          (new-lines (append lines (list PARSED-LINE))))
+    (dbg (format nil "!!!!!!!!!add-to-parsed-lines: lines: ~X new-lines: ~X~%" lines new-lines))
     (set-parsed-lines PARSED-LINES FORMAT new-lines)))
 
 (declaim (ftype (function (<parsed-lines> <format> (function (<parsed-line>) <parsed-line>)) list) modify-last-parsed-line))
@@ -174,16 +177,11 @@ It can be used together with (pop-until ...)
   (lambda (x) (funcall test el x)))
 
 
-(defun append-to-path (entries entry &key sep)
-  "Append dir/file `entry` to a list of dirs `entries` optionally using
-a path separator `sep` (default: /), returns result string"
-  (reduce (lambda (e1 e2) (concatenate 'string e1 (or sep "/") e2))
-          (append entries (list entry))))
-
-(defun to-path (entries &key sep)
-  "Converts dir/file entries to a string using optional path separator `sep` (default: /)"
-  (reduce (lambda (e1 e2) (concatenate 'string e1 (or sep "/") e2))
-          entries))
+(defun path-parts-to-str (parts &key (part nil) (sep "/"))
+  "Converts dir/file parts to a string using optional path separator `sep` and possibly adding the suffix part"
+  (if (and (null parts) (null part)) ""
+      (reduce (lambda (e1 e2) (concatenate 'string e1 sep e2))
+              (if part (append parts (list part)) parts))))
 
 
 (declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-tree))
@@ -252,24 +250,33 @@ a path separator `sep` (default: /), returns result string"
                 (when poped-num ;; when poped to existing indent ;; TODO what if we return to the zero-indent?
                   (setf state-indents new-indents)
                   (setf state-fnames (subseq state-fnames poped-num))
-                  (setf fname (append-to-path state-fnames fname)) ;; fname is a/b/c now
+                  (setf fname (path-parts-to-str state-fnames :part fname)) ;; fname is a/b/c now
                   (make-<parsed-line> :format :tree :fname fname :fsobj fsobj))))
              ((> fname-start last-state-indent)
               ;; set my (:tree) last parsed line's `fsobj` to :dir - we enter deeper (coz fname-start > last-state-indent):
-              (modify-last-parsed-line
-               PARSED-LINES
-               :tree
-               (lambda (last-parsed-line) (setf (<parsed-line>-fsobj last-parsed-line)
-                                                :dir)))
+              (modify-last-parsed-line PARSED-LINES
+                                       :tree
+                                       (lambda (last-parsed-line)
+                                         (setf (<parsed-line>-fsobj last-parsed-line) :dir)
+                                         (dbg (format nil "!!!!!!L!!!! ~A~%" last-parsed-line))
+                                         last-parsed-line))
               (setf state-indents (cons fname-start state-indents))
+              ;; (dbg (format t "1: fname: ~A state-fnames: ~X~%" fname state-fnames))
               (setf state-fnames (cons fname state-fnames))
-              (setf fname (to-path state-fnames)) ;; fname is a/b/c now
+              ;; (dbg (format t "2: fname: ~A state-fnames: ~X~%" fname state-fnames))
+              (setf fname (path-parts-to-str (reverse state-fnames))) ;; fname is a/b/c now
               (make-<parsed-line> :format :tree :fname fname :fsobj fsobj))
              ((= fname-start last-state-indent)
-              (setf fname (append-to-path state-fnames fname)) ;; fname is a/b/c now
+              (if state-fnames
+                  (setf (car state-fnames) fname)
+                  (setf state-fnames (list fname)))
+              (setf fname (path-parts-to-str (reverse state-fnames))) ;; fname is a/b/c now
+              (dbg (format nil "!!!!!!!!!!!!!!!!!!!!!! ~A , ~A~%" state-fnames fname))
               (make-<parsed-line> :format :tree :fname fname :fsobj fsobj)))))
         (when parsed-line
+          (dbg (format nil "!!!!!!!! before to add ~S (parsed-line: ~S)~%" PARSED-LINES parsed-line))
           (add-to-parsed-lines PARSED-LINES :tree parsed-line)
+          ;; (dbg (format t "!!!!!!!! after add ~X~%" PARSED-LINES))
           parsed-line)))))
 
 (defun parse-line-as-find (PARSED-LINES STR)
@@ -658,20 +665,16 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
                          (multiple-value-list
                           (pop-until '(1 2 3 4 5) (eq-to 3) :include t)))))
 
-(5am:test append-to-path--test1
-          (5am:is (equal "aa/bb/cc"
-                         (append-to-path '("aa" "bb") "cc"))))
-
-(5am:test append-to-path--test2
-          (5am:is (equal "aa#bb#cc"
-                         (append-to-path '("aa" "bb") "cc" :sep "#"))))
-
-(5am:test to-path--test1
+(5am:test path-parts-to-str--test1
           (5am:is (equal "aaa/bbb"
-                         (to-path '("aaa" "bbb")))))
+                         (path-parts-to-str '("aaa" "bbb")))))
 
-(5am:test to-path--test2
-          (5am:is (equal "aaa!bbb" (to-path '("aaa" "bbb") :sep "!"))))
+(5am:test path-parts-to-str--test2
+          (5am:is (equal "aaa/bbb/ccc"
+                         (path-parts-to-str '("aaa" "bbb") :part "ccc"))))
+
+(5am:test path-parts-to-str--test3
+          (5am:is (equal "aaa!bbb" (path-parts-to-str '("aaa" "bbb") :sep "!"))))
 
 (5am:test markup-line-as-tree--test1
           (5am:is (equal nil (markup-line-as-tree ""))))
@@ -710,9 +713,33 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
                       :AS-LS1R NIL
                       :AS-LS1RL NIL
                       :TREE-STATE #S(<TREE-STATE> :INDENTS (9) :FNAMES ("file")))
-                   (let ((pls (make-<parsed-lines>)))
+                   (let ((pls (make-<parsed-lines>))
+                         (*dbg-cond* t))
                      (parse-line-as-tree pls "   +---- file/  ")
                      pls))))
+
+(5am:test parse-line-as-tree--test4
+          (5am:is (equalp
+                   #S(<PARSED-LINES>
+                      :DETECTED-FORMAT NIL
+                      :DIR-FROM-FINAL-SLASH T
+                      :AS-TREE (#S(<PARSED-LINE> :FORMAT :TREE :FNAME "etc" :FMODE 0 :FSOBJ :DIR)
+                                #S(<PARSED-LINE> :FORMAT :TREE :FNAME "etc/file" :FMODE 0 :FSOBJ :FILE))
+                      :AS-FIND NIL
+                      :AS-LS1R NIL
+                      :AS-LS1RL NIL
+                      :TREE-STATE #S(<TREE-STATE> :INDENTS (9 0) :FNAMES ("file" "etc")))
+                   (let ((*dbg-cond* nil)
+                         (pls #S(<PARSED-LINES>
+                                 :DETECTED-FORMAT NIL
+                                 :DIR-FROM-FINAL-SLASH T
+                                 :AS-TREE (#S(<PARSED-LINE> :FORMAT :TREE :FNAME "etc" :FMODE 0 :FSOBJ :DIR))
+                                 :AS-FIND NIL
+                                 :AS-LS1R NIL
+                                 :AS-LS1RL NIL
+                                 :TREE-STATE #S(<TREE-STATE> :INDENTS (0) :FNAMES ("etc")))))
+                         (parse-line-as-tree pls "   +---- file  ")
+                         pls))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
