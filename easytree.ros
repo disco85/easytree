@@ -24,11 +24,19 @@ exec ros -Q -- $0 "$@"
 
 (defun starts-with-p (STRING PREFIX &key CASE-INSENSITIVE)
   "Check that `string` starts with `PREFIX`"
-  (and (<= (length PREFIX) (length STRING))
-       (if CASE-INSENSITIVE
-           (string-equal PREFIX (subseq STRING 0 (length PREFIX)))
-           (string= PREFIX (subseq STRING 0 (length PREFIX)) :start1 0 :start2 0))))
+  (let ((string-len (length STRING)) (prefix-len (length PREFIX)))
+    (and (<= prefix-len string-len)
+         (if CASE-INSENSITIVE
+             (string-equal PREFIX (subseq STRING 0 prefix-len))
+             (string= PREFIX (subseq STRING 0 prefix-len))))))
 
+(defun ends-with-p (STRING SUFFIX &key CASE-INSENSITIVE)
+  "Check that `string` ends with `SUFFIX`"
+  (let ((string-len (length STRING)) (suffix-len (length SUFFIX)))
+    (and (<= suffix-len string-len)
+         (if CASE-INSENSITIVE
+             (string-equal SUFFIX (subseq STRING (- string-len suffix-len)))
+             (string= SUFFIX (subseq STRING (- string-len suffix-len)))))))
 
 (declaim (ftype (function (string (or null integer)) (or null character)) ch-at))
 (defun ch-at (STRING I)
@@ -192,6 +200,7 @@ It can be used together with (pop-until ...)
 (declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-ls1r))
 (declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-ls1rl))
 
+;; TODO support /etc (currently I think / will not be collected as fname)
 (defun markup-line-as-tree (STR)
   "Marks up STR possibly looking as a line from `tree`-like output. Returns
   NIL (not `tree`-like line) or alist:
@@ -251,13 +260,13 @@ It can be used together with (pop-until ...)
               ;; pop indents until stacked indent = current indent (fname-start) if the current indent < last-state-indent:
               (multiple-value-bind (new-indents poped-num) (pop-until state-indents (eq-to fname-start) :include t)
                 (when poped-num ;; when poped to existing indent ;; TODO what if we return to the zero-indent?
-                  (dbg (format nil "BEFORE! poped-num: ~A ■ state-indents: ~A ■ state-fnames: ~A ■ fname: ~A ■ fname-start: ~A ~%"
-                               poped-num state-indents state-fnames fname fname-start))
+                  ;; (dbg (format nil "BEFORE! poped-num: ~A ■ state-indents: ~A ■ state-fnames: ~A ■ fname: ~A ■ fname-start: ~A ~%"
+                  ;;              poped-num state-indents state-fnames fname fname-start))
                   (setf state-indents new-indents)
                   (setf state-fnames (subseq state-fnames poped-num))
                   (setf fname (path-parts-to-str state-fnames :part fname)) ;; fname is a/b/c now
-                  (dbg (format nil "AFTER poped-num: ~A ■ state-indents: ~A ■ state-fnames: ~A ■ fname: ~A~%"
-                               poped-num state-indents state-fnames fname))
+                  ;; (dbg (format nil "AFTER poped-num: ~A ■ state-indents: ~A ■ state-fnames: ~A ■ fname: ~A~%"
+                  ;;              poped-num state-indents state-fnames fname))
                   (make-<parsed-line> :format :tree :fname fname :fsobj fsobj))))
              ((> fname-start last-state-indent)
               ;; set my (:tree) last parsed line's `fsobj` to :dir - we enter deeper (coz fname-start > last-state-indent):
@@ -278,8 +287,8 @@ It can be used together with (pop-until ...)
                   (setf (car state-fnames) fname)
                   (setf state-fnames (list fname)))
               (setf fname (path-parts-to-str (reverse state-fnames))) ;; fname is a/b/c now
-              (dbg (format nil "WHEN= state-fnames: ~A■fname: ~A■last-state-indent: ~A■fname-start: ~A~%"
-                           state-fnames fname last-state-indent fname-start))
+              ;; (dbg (format nil "WHEN= state-fnames: ~A■fname: ~A■last-state-indent: ~A■fname-start: ~A~%"
+              ;;              state-fnames fname last-state-indent fname-start))
               (make-<parsed-line> :format :tree :fname fname :fsobj fsobj)))))
         (when parsed-line
           ;; (dbg (format nil "!!!!!!!! before to add ~S (parsed-line: ~S)~%" PARSED-LINES parsed-line))
@@ -304,22 +313,24 @@ It can be used together with (pop-until ...)
     (:ls1r parse-line-as-ls1r)
     (:ls1rl parse-line-as-ls1rl)))
 
-(declaim (ftype (function (string <parsed-lines>) (or null list)) parse-line))
-(defun parse-line (STR PARSED-LINES)
+(declaim (ftype (function (<parsed-lines> string) (or null list)) parse-line))
+(defun parse-line (PARSED-LINES STR)
   "Parses string STR until there are active formats (formats that still parse),
 returns a list of lists (parsed strings) or null if nothing can be parsed more"
   (let* ((active-formats (get-most-parsed-lines PARSED-LINES))
          (parse-funcs (mapcar #'get-parse-func
                               (mapcar #'car active-formats)))
-         (active-formats-parsed-line
-           (mapcar (lambda (parse-func) (funcall parse-func PARSED-LINES STR))
-                   parse-funcs))
-         (done (mapcar (lambda (active-format parsed-line) ;; TODO just check with (and ...)
-                         (when parsed-line
-                           (add-to-parsed-lines PARSED-LINES (car active-format) parsed-line)))
-                       active-formats
-                       active-formats-parsed-line))
-         done)))
+         (active-format-parsed-lines ;; parsed lines from active formats (one line from every active format) w/o nils
+           (remove nil
+                   (mapcar (lambda (parse-func) (funcall parse-func PARSED-LINES STR))
+                           parse-funcs))))
+    active-format-parsed-lines))
+         ;; (done (mapcar (lambda (active-format parsed-line) ;; TODO just check with (and ...)
+         ;;                 (when parsed-line
+         ;;                   (add-to-parsed-lines PARSED-LINES (car active-format) parsed-line)))
+         ;;               active-formats
+         ;;               active-formats-parsed-line))
+         ;; done)))
 
 ;; XXX "Permission denied" containing lines must be ignored!
 ;; XXX Also "cannot open directory"
@@ -328,46 +339,34 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
 ;; +-----file
 ;; +-----  file  <- all lines will start with the same spacing policy
 
-;; TODO *-det must match only unique features, so `find .` will not be recognized as
-;; ls. But what should match "/aaa/bbb:" then? ls -1Rl or ls -1R ?
+;; TODO add :unknown to :dir :file - CLI opt will force it to dir/file
 
-(defun tree-line-det (line)
-  "Detects that the line looks as a line from `tree`-like output. Returns
-  NIL (not `tree`-like line) or '((:spaces . <spaces-num-before-file-after-decoration>))"
-  (let ((i 0) (non-alphanums 0) (spaces 0) (last-i (1- (length line))))
-    (when
-        (and (> last-i 0)
-             (char/= #\: (ch-at line last-i))
-             (loop :for ch = (ch-at line i)
-                   :while (< i last-i)
-                   :while (not (or (alphanumericp ch) (char= ch #\/) (char= ch #\.)
-                                   (char= ch #\') (char= ch #\")))
-                   :do (incf non-alphanums) (incf i)
-                   :finally (return (/= non-alphanums 0)))
-             (loop :for j :downfrom (1- i) :to 0
-                   :for ch = (ch-at line j)
-                   :while (char= ch #\Space)
-                   :do (incf spaces)
-                   :finally (return t))
-             ;; if after prev. segments there are 1+ alphanums - OK:
-             (find-if #'alphanumericp line :start non-alphanums))
-      (list (cons :spaces spaces)))))
-
-
-(defun find-line-det (line)
-  "Detects that the line looks as a line from `find`-like output"
-  (let ((last-i (1- (length line))))
-    (when
-        (and (> last-i 0)
-             (char/= #\: (ch-at line last-i))
-             (or (starts-with-p line "/")
-                 (starts-with-p line "./")
-                 (starts-with-p line "../")
-                 (starts-with-p line "'./")
-                 (starts-with-p line "\"./")
-                 (starts-with-p line "'../")
-                 (starts-with-p line "\"../")))
-      (list (cons :uniq-features 1)))))
+(defun parse-line-as-find (PARSED-LINES STR)
+  "TODO"
+  (let* ((last-i (1- (length STR)))
+         (fname nil)
+         (lines (get-parsed-lines PARSED-LINES :find))
+         (last-parsed-line (car (last lines))))
+    (when (and (> last-i 0) (char/= #\: (ch-at STR last-i)))
+      (cond
+        ((starts-with-p STR "/") (setf fname STR))
+        ((starts-with-p STR "./") (setf fname STR))
+        ((starts-with-p STR "../") (setf fname STR))
+        ((and (starts-with-p STR "'./") (ends-with-p STR "'")) (setf fname (subseq STR 1 last-i)))
+        ((and (starts-with-p STR "\"./") (ends-with-p STR "\"")) (setf fname (subseq STR 1 last-i)))
+        ((and (starts-with-p STR "'../") (ends-with-p STR "'")) (setf fname (subseq STR 1 last-i)))
+        ((and (starts-with-p STR "\"../") (ends-with-p STR "\"")) (setf fname (subseq STR 1 last-i))))
+      (when (not (emptyp fname))
+        (when (and last-parsed-line (starts-with-p fname last-parsed-line))
+          ;; Last parsed line  (of :find format) is prefix of mine, then it was a dir,
+          ;; me - an entry inside that dir, so mark as :dir the last parsed line's fsobj:
+          (modify-last-parsed-line PARSED-LINES
+                                   :find
+                                   (lambda (last-parsed-line)
+                                     (setf (<parsed-line>-fsobj last-parsed-line) :dir)
+                                     last-parsed-line)))
+        (add-to-parsed-lines PARSED-LINES :find
+                             (make-<parsed-line> :format :find :fname fname :fmode 0 :fsobj :file))))))
 
 
 (defparameter *unicode-whitespace-chars*
