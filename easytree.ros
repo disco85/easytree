@@ -249,11 +249,15 @@ It can be used together with (pop-until ...)
              ((< fname-start last-state-indent)
               ;; depth decreased, so I have to pop items from the tree-state:
               ;; pop indents until stacked indent = current indent (fname-start) if the current indent < last-state-indent:
-              (multiple-value-bind (new-indents poped-num) (pop-until state-indents (eq-to fname-start))
+              (multiple-value-bind (new-indents poped-num) (pop-until state-indents (eq-to fname-start) :include t)
                 (when poped-num ;; when poped to existing indent ;; TODO what if we return to the zero-indent?
+                  (dbg (format nil "BEFORE! poped-num: ~A ■ state-indents: ~A ■ state-fnames: ~A ■ fname: ~A ■ fname-start: ~A ~%"
+                               poped-num state-indents state-fnames fname fname-start))
                   (setf state-indents new-indents)
                   (setf state-fnames (subseq state-fnames poped-num))
                   (setf fname (path-parts-to-str state-fnames :part fname)) ;; fname is a/b/c now
+                  (dbg (format nil "AFTER poped-num: ~A ■ state-indents: ~A ■ state-fnames: ~A ■ fname: ~A~%"
+                               poped-num state-indents state-fnames fname))
                   (make-<parsed-line> :format :tree :fname fname :fsobj fsobj))))
              ((> fname-start last-state-indent)
               ;; set my (:tree) last parsed line's `fsobj` to :dir - we enter deeper (coz fname-start > last-state-indent):
@@ -274,7 +278,8 @@ It can be used together with (pop-until ...)
                   (setf (car state-fnames) fname)
                   (setf state-fnames (list fname)))
               (setf fname (path-parts-to-str (reverse state-fnames))) ;; fname is a/b/c now
-              ;; (dbg (format nil "!!!!!!!!!!!!!!!!!!!!!! ~A , ~A~%" state-fnames fname))
+              (dbg (format nil "WHEN= state-fnames: ~A■fname: ~A■last-state-indent: ~A■fname-start: ~A~%"
+                           state-fnames fname last-state-indent fname-start))
               (make-<parsed-line> :format :tree :fname fname :fsobj fsobj)))))
         (when parsed-line
           ;; (dbg (format nil "!!!!!!!! before to add ~S (parsed-line: ~S)~%" PARSED-LINES parsed-line))
@@ -774,6 +779,27 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
                             :as-tree (list (make-<parsed-line> :format :tree :fname "etc" :fsobj :dir))
                             :tree-state (make-<tree-state> :indents '(0) :fnames '("etc")))))
                      (parse-line-as-tree pls "   +---- file  ")
+                     pls))))
+
+
+(5am:test parse-line-as-tree--test5
+          (5am:is (equalp
+                   (make-<parsed-lines>
+                    :dir-from-final-slash t
+                    :as-tree (list (make-<parsed-line> :format :tree :fname "etc" :fsobj :dir)
+                                   (make-<parsed-line> :format :tree :fname "etc/dir" :fsobj :dir)
+                                   (make-<parsed-line> :format :tree :fname "etc/dir/file-1" :fsobj :file)
+                                   (make-<parsed-line> :format :tree :fname "etc/dir/file-2" :fsobj :file)
+                                   (make-<parsed-line> :format :tree :fname "etc/file-3" :fsobj :file)
+                                   (make-<parsed-line> :format :tree :fname "tmp" :fsobj :dir))
+                    :tree-state (make-<tree-state> :indents nil :fnames '("tmp")))
+                   (let ((pls (make-<parsed-lines>)))
+                     (parse-line-as-tree pls "etc")
+                     (parse-line-as-tree pls "+---dir/")
+                     (parse-line-as-tree pls "     +----file-1")
+                     (parse-line-as-tree pls "     +----file-2")
+                     (parse-line-as-tree pls "+---file-3")
+                     (parse-line-as-tree pls "tmp/")
                      pls))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
