@@ -40,6 +40,9 @@ exec ros -Q -- $0 "$@"
       (t (char STRING I)))))
 
 
+(defun emptyp (x)
+  (or (null x) (and (stringp x) (string= "" x))))
+
 (deftype <fsobj> () '(member :file :dir))
 
 (defconstant +formats+ '(:tree :find :ls1r :ls1rl))
@@ -128,7 +131,7 @@ in a form (<format> . lines-list)"
 not add it to wrong FORMAT)"
   (let* ((lines (get-parsed-lines PARSED-LINES FORMAT))
          (new-lines (append lines (list PARSED-LINE))))
-    (dbg (format nil "!!!!!!!!!add-to-parsed-lines: lines: ~X new-lines: ~X~%" lines new-lines))
+    ;; (dbg (format nil "!!!!!!!!!add-to-parsed-lines: lines: ~X new-lines: ~X~%" lines new-lines))
     (set-parsed-lines PARSED-LINES FORMAT new-lines)))
 
 (declaim (ftype (function (<parsed-lines> <format> (function (<parsed-line>) <parsed-line>)) list) modify-last-parsed-line))
@@ -258,7 +261,7 @@ It can be used together with (pop-until ...)
                                        :tree
                                        (lambda (last-parsed-line)
                                          (setf (<parsed-line>-fsobj last-parsed-line) :dir)
-                                         (dbg (format nil "!!!!!!L!!!! ~A~%" last-parsed-line))
+                                         ;; (dbg (format nil "!!!!!!L!!!! ~A~%" last-parsed-line))
                                          last-parsed-line))
               (setf state-indents (cons fname-start state-indents))
               ;; (dbg (format t "1: fname: ~A state-fnames: ~X~%" fname state-fnames))
@@ -271,10 +274,10 @@ It can be used together with (pop-until ...)
                   (setf (car state-fnames) fname)
                   (setf state-fnames (list fname)))
               (setf fname (path-parts-to-str (reverse state-fnames))) ;; fname is a/b/c now
-              (dbg (format nil "!!!!!!!!!!!!!!!!!!!!!! ~A , ~A~%" state-fnames fname))
+              ;; (dbg (format nil "!!!!!!!!!!!!!!!!!!!!!! ~A , ~A~%" state-fnames fname))
               (make-<parsed-line> :format :tree :fname fname :fsobj fsobj)))))
         (when parsed-line
-          (dbg (format nil "!!!!!!!! before to add ~S (parsed-line: ~S)~%" PARSED-LINES parsed-line))
+          ;; (dbg (format nil "!!!!!!!! before to add ~S (parsed-line: ~S)~%" PARSED-LINES parsed-line))
           (add-to-parsed-lines PARSED-LINES :tree parsed-line)
           ;; (dbg (format t "!!!!!!!! after add ~X~%" PARSED-LINES))
           parsed-line)))))
@@ -590,6 +593,50 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
     (nreverse results)))
 
 
+(defun cmp-slot (a b getter &optional (eqfn #'equal))
+  (let ((va (funcall getter a))
+        (vb (funcall getter b)))
+    (unless (funcall eqfn va vb)
+      (format nil "~A: unequal~%  ~A~%vs.~%  ~A" getter va vb))))
+
+(defgeneric cmp-my-structs (a b)
+  )
+
+(defmethod cmp-my-structs ((a <parsed-line>) (b <parsed-line>))
+  (format nil "~{~a~^~%~}"
+           (remove nil (list (cmp-slot a b #'<parsed-line>-format)
+                             (cmp-slot a b #'<parsed-line>-fname)
+                             (cmp-slot a b #'<parsed-line>-fmode)
+                             (cmp-slot a b #'<parsed-line>-fsobj)))))
+
+(defmethod cmp-my-structs ((a <tree-state>) (b <tree-state>))
+  (format nil "~{~a~^~%~}"
+          (remove nil (list (cmp-slot a b #'<tree-state>-indents)
+                            (cmp-slot a b #'<tree-state>-fnames)))))
+
+(defun cmp-struct-lists (l1 l2 &key (title ""))
+  (let ((len1 (length l1)) (len2 (length l2)))
+    (cond
+      ((> len1 len2) (list (format nil "First list is longer than the second ~A" title)))
+      ((< len1 len2) (list (format nil "Second list is longer than the first ~A" title)))
+      ((= len1 len2) (mapcar #'cmp-my-structs l1 l2)))))
+
+
+(defmethod cmp-my-structs ((a <parsed-lines>) (b <parsed-lines>))
+  (format nil "~{~a~^~%~}"
+          (remove nil `(,(cmp-slot a b #'<parsed-lines>-detected-format)
+                        ,(cmp-slot a b #'<parsed-lines>-dir-from-final-slash)
+                        ,@(cmp-struct-lists (<parsed-lines>-as-tree a) (<parsed-lines>-as-tree b) :title "(as-tree)")
+                        ,@(cmp-struct-lists (<parsed-lines>-as-find a) (<parsed-lines>-as-find b) :title "(as-find)")
+                        ,@(cmp-struct-lists (<parsed-lines>-as-ls1r a) (<parsed-lines>-as-ls1r b) :title "(as-ls1r)")
+                        ,@(cmp-struct-lists (<parsed-lines>-as-ls1rl a) (<parsed-lines>-as-ls1rl b) :title "(as-ls1rl)")
+                        ;; ,@(mapcar #'cmp-my-structs (<parsed-lines>-as-tree a) (<parsed-lines>-as-tree b))
+                        ;; ,@(mapcar #'cmp-my-structs (<parsed-lines>-as-find a) (<parsed-lines>-as-find b))
+                        ;; ,@(mapcar #'cmp-my-structs (<parsed-lines>-as-ls1r a) (<parsed-lines>-as-ls1r b))
+                        ;; ,@(mapcar #'cmp-my-structs (<parsed-lines>-as-ls1rl a) (<parsed-lines>-as-ls1rl b))
+                        ,(cmp-my-structs (<parsed-lines>-tree-state a) (<parsed-lines>-tree-state b))))))
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Test ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (5am:def-suite :suite1 :description "EasyTree Test Suite")
 (5am:in-suite :suite1)
@@ -699,47 +746,35 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
                                        ""))))
 (5am:test parse-line-as-tree--test2
           (5am:is (equalp
-                   #S(<PARSED-LINE> :FORMAT :TREE :FNAME "file" :FMODE 0 :FSOBJ :FILE)
+                   (make-<parsed-line> :format :tree :fname "file" :fmode 0 :fsobj :file)
                    (parse-line-as-tree (make-<parsed-lines>)
                                        "file"))))
 
 (5am:test parse-line-as-tree--test3
           (5am:is (equalp
-                   #S(<PARSED-LINES>
-                      :DETECTED-FORMAT NIL
-                      :DIR-FROM-FINAL-SLASH T
-                      :AS-TREE (#S(<PARSED-LINE> :FORMAT :TREE :FNAME "file" :FMODE 0 :FSOBJ :DIR))
-                      :AS-FIND NIL
-                      :AS-LS1R NIL
-                      :AS-LS1RL NIL
-                      :TREE-STATE #S(<TREE-STATE> :INDENTS (9) :FNAMES ("file")))
-                   (let ((pls (make-<parsed-lines>))
-                         (*dbg-cond* t))
+                   (make-<parsed-lines>
+                    :dir-from-final-slash t
+                    :as-tree (list (make-<parsed-line> :format :tree :fname "file" :fsobj :dir))
+                    :tree-state (make-<tree-state> :indents (list 9) :fnames (list "file")))
+                   (let ((pls (make-<parsed-lines>)))
                      (parse-line-as-tree pls "   +---- file/  ")
                      pls))))
 
+
 (5am:test parse-line-as-tree--test4
           (5am:is (equalp
-                   #S(<PARSED-LINES>
-                      :DETECTED-FORMAT NIL
-                      :DIR-FROM-FINAL-SLASH T
-                      :AS-TREE (#S(<PARSED-LINE> :FORMAT :TREE :FNAME "etc" :FMODE 0 :FSOBJ :DIR)
-                                #S(<PARSED-LINE> :FORMAT :TREE :FNAME "etc/file" :FMODE 0 :FSOBJ :FILE))
-                      :AS-FIND NIL
-                      :AS-LS1R NIL
-                      :AS-LS1RL NIL
-                      :TREE-STATE #S(<TREE-STATE> :INDENTS (9 0) :FNAMES ("file" "etc")))
-                   (let ((*dbg-cond* nil)
-                         (pls #S(<PARSED-LINES>
-                                 :DETECTED-FORMAT NIL
-                                 :DIR-FROM-FINAL-SLASH T
-                                 :AS-TREE (#S(<PARSED-LINE> :FORMAT :TREE :FNAME "etc" :FMODE 0 :FSOBJ :DIR))
-                                 :AS-FIND NIL
-                                 :AS-LS1R NIL
-                                 :AS-LS1RL NIL
-                                 :TREE-STATE #S(<TREE-STATE> :INDENTS (0) :FNAMES ("etc")))))
-                         (parse-line-as-tree pls "   +---- file  ")
-                         pls))))
+                   (make-<parsed-lines>
+                    :dir-from-final-slash t
+                    :as-tree (list (make-<parsed-line> :format :tree :fname "etc" :fsobj :dir)
+                                   (make-<parsed-line> :format :tree :fname "etc/file" :fsobj :file))
+                    :tree-state (make-<tree-state> :indents '(9 0) :fnames '("file" "etc")))
+                   (let ((pls
+                           (make-<parsed-lines>
+                            :dir-from-final-slash t
+                            :as-tree (list (make-<parsed-line> :format :tree :fname "etc" :fsobj :dir))
+                            :tree-state (make-<tree-state> :indents '(0) :fnames '("etc")))))
+                     (parse-line-as-tree pls "   +---- file  ")
+                     pls))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
