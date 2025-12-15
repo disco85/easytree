@@ -51,6 +51,19 @@ exec ros -Q -- $0 "$@"
 (defun emptyp (x)
   (or (null x) (and (stringp x) (string= "" x))))
 
+
+;; (defmacro hash-literal (&rest pairs)
+;;   "Create a hash table from alternating key/value pairs:
+
+;; CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
+;; #<HASH-TABLE :TEST EQUAL :COUNT 2 {10026C5E73}>
+;; "
+;;   `(let ((table (make-hash-table :test 'equal)))
+;;      ,@(loop for (key val) on pairs by #'cddr
+;;              collect `(setf (gethash ,key table) ,val))
+;;      table))
+
+
 (deftype <fsobj> () '(member :file :dir))
 
 (defconstant +formats+ '(:tree :find :ls1r :ls1rl))
@@ -333,9 +346,62 @@ It can be used together with (pop-until ...)
                              (make-<parsed-line> :format :find :fname fname :fmode 0 :fsobj :file))))))
 
 
-(declaim (ftype (function (string) (or null integer))))
-(defun parse-fmode-str (STR)
-  )
+(declaim (ftype (function (string array) (or null integer)) parse-fmode-str))
+(defun parse-fmode-str (STR FMODE-SPECS)
+  "TODO"
+  (let* ((char-to-value (lambda (ch chs-map) (let ((spec (gethash ch chs-map)))
+                                               (if spec (<fmode-spec>-value spec) 0))))
+         (char-values (map 'list char-to-value STR FMODE-SPECS))
+         (fmode (reduce #'logior char-values)))
+    fmode))
+
+(defstruct <fmode-spec>
+  (pos 0 :type integer)
+  (char nil :type character)
+  (value nil :type integer)
+  (descr nil :type string))
+
+
+(defparameter *fmode-bits* (make-array 10))
+
+(dotimes (i 10) (setf (aref *fmode-bits* i) (make-hash-table :test 'equal)))
+(defun defmode-in (VAR POS CHAR VALUE DESCR)
+  (when (and (>= POS 0) (< POS 10))
+      (setf (gethash CHAR (aref VAR POS))
+        (make-<fmode-spec> :pos POS :char CHAR :value VALUE :descr DESCR))))
+
+;; Character positions 0-9 of "-rw-r--r--":
+(defmode-in *fmode-bits* 0 #\- #x8000 "regular file")
+(defmode-in *fmode-bits* 0 #\d #x4000 "directory")
+(defmode-in *fmode-bits* 0 #\l #xA000 "symbolic link")
+(defmode-in *fmode-bits* 0 #\c #x2000 "character device")
+(defmode-in *fmode-bits* 0 #\b #x6000 "block device")
+(defmode-in *fmode-bits* 0 #\p #x1000 "named pipe")
+(defmode-in *fmode-bits* 0 #\s #xC000 "socket")
+(defmode-in *fmode-bits* 1 #\r #x0100 "owner read")
+(defmode-in *fmode-bits* 1 #\- #x0000 "no owner read")
+(defmode-in *fmode-bits* 2 #\w #x0080 "owner write")
+(defmode-in *fmode-bits* 2 #\- #x0000 "no owner write")
+(defmode-in *fmode-bits* 3 #\x #x0040 "owner exec")
+(defmode-in *fmode-bits* 3 #\s #x0800 "setuid+exec")
+(defmode-in *fmode-bits* 3 #\S #x0800 "setuid+no exec")
+(defmode-in *fmode-bits* 3 #\- #x0000 "no owner exec")
+(defmode-in *fmode-bits* 4 #\r #x0020 "group read")
+(defmode-in *fmode-bits* 4 #\- #x0000 "no group read")
+(defmode-in *fmode-bits* 5 #\w #x0010 "group write")
+(defmode-in *fmode-bits* 5 #\- #x0000 "no group write")
+(defmode-in *fmode-bits* 6 #\x #x0008 "group exec")
+(defmode-in *fmode-bits* 6 #\s #x0400 "setgid+exec")
+(defmode-in *fmode-bits* 6 #\S #x0400 "setgid+no exec")
+(defmode-in *fmode-bits* 6 #\- #x0000 "no group exec")
+(defmode-in *fmode-bits* 7 #\r #x0004 "other read")
+(defmode-in *fmode-bits* 7 #\- #x0000 "no other read")
+(defmode-in *fmode-bits* 8 #\w #x0002 "other write")
+(defmode-in *fmode-bits* 8 #\- #x0000 "no other write")
+(defmode-in *fmode-bits* 9 #\x #x0001 "other exec")
+(defmode-in *fmode-bits* 9 #\t #x0200 "sticky+exec")
+(defmode-in *fmode-bits* 9 #\T #x0200 "sticky+no exec")
+(defmode-in *fmode-bits* 9 #\- #x0000 "no other exec")
 
 
 (defun parse-line-as-ls1r (PARSED-LINES STR)
@@ -813,9 +879,6 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
                      (parse-line-as-tree pls "tmp/")
                      pls))))
 
-(setf fiveam:*debug-on-error* t
-      fiveam:*debug-on-failure* t)
-
 (5am:test parse-line-as-find--test1
           (5am:is (equalp
                    (make-<parsed-lines>
@@ -837,6 +900,11 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
                      (parse-line-as-find pls "'./dir2/dir 21/file21'")
                      (parse-line-as-find pls "./dir3")
                      pls))))
+
+(5am:test parse-fmode-str--test1
+          (5am:is (eql
+                   #x81ed
+                   (parse-fmode-str "-rwxr-xr-x" *fmode-bits*))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
