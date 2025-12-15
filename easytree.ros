@@ -346,15 +346,7 @@ It can be used together with (pop-until ...)
                              (make-<parsed-line> :format :find :fname fname :fmode 0 :fsobj :file))))))
 
 
-(declaim (ftype (function (string array) (or null integer)) parse-fmode-str))
-(defun parse-fmode-str (STR FMODE-SPECS)
-  "TODO"
-  (let* ((char-to-value (lambda (ch chs-map) (let ((spec (gethash ch chs-map)))
-                                               (if spec (<fmode-spec>-value spec) 0))))
-         (char-values (map 'list char-to-value STR FMODE-SPECS))
-         (fmode (reduce #'logior char-values)))
-    fmode))
-
+;; Specification of a bit in strings like "-rw-r--r--":
 (defstruct <fmode-spec>
   (pos 0 :type integer)
   (char nil :type character)
@@ -362,11 +354,12 @@ It can be used together with (pop-until ...)
   (descr nil :type string))
 
 
+;; Bits specifications for "-rw-r--r--" string:
 (defparameter *fmode-bits* (make-array 10))
-
+;; Initialization of bits specifications for "-rw-r--r--" strings:
 (dotimes (i 10) (setf (aref *fmode-bits* i) (make-hash-table :test 'equal)))
 (defun defmode-in (VAR POS CHAR VALUE DESCR)
-  (when (and (>= POS 0) (< POS 10))
+  (when (and (>= POS 0) (< POS (length *fmode-bits*)))
       (setf (gethash CHAR (aref VAR POS))
         (make-<fmode-spec> :pos POS :char CHAR :value VALUE :descr DESCR))))
 
@@ -403,6 +396,16 @@ It can be used together with (pop-until ...)
 (defmode-in *fmode-bits* 9 #\T #x0200 "sticky+no exec")
 (defmode-in *fmode-bits* 9 #\- #x0000 "no other exec")
 
+(declaim (ftype (function (string array) (or null integer)) parse-fmode-str))
+(defun parse-fmode-str (STR FMODE-SPECS)
+  "TODO"
+  (let* ((char-to-value (lambda (ch chs-map) (let ((spec (gethash ch chs-map)))
+                                               (if spec (<fmode-spec>-value spec) 0))))
+         (char-values (map 'list char-to-value STR FMODE-SPECS))
+         (fmode (if (= (length *fmode-bits*) (length char-values))
+                    (reduce #'logior char-values)
+                    nil)))
+    fmode))
 
 (defun parse-line-as-ls1r (PARSED-LINES STR)
   ) ;; TODO
@@ -905,6 +908,16 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
           (5am:is (eql
                    #x81ed
                    (parse-fmode-str "-rwxr-xr-x" *fmode-bits*))))
+
+(5am:test parse-fmode-str--test2
+          (5am:is (eql
+                   nil
+                   (parse-fmode-str "" *fmode-bits*))))
+
+(5am:test parse-fmode-str--test3
+          (5am:is (eql
+                   nil
+                   (parse-fmode-str "-rwxr-" *fmode-bits*))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
