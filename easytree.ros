@@ -83,10 +83,14 @@ exec ros -Q -- $0 "$@"
 (defstruct <tree-state>
   ;; Stack of indents in a tree directory representation,it is not 1,2,3, but any integers.
   ;; It's a list, not just one integer, bcs we can decrease depth from 30 to 12 and, if it
-  ;; is an integer, we cannot know how many dirs we exited: one 30->12, two 30->20->12, ...
+  ;; is an integer, we cannot know how many dirs we exited: one 30->12, two 30->20->12, ...:
   (indents nil :type list)
-  ;; Stack of file/dir names in a tree directory representation
+  ;; Stack of file/dir names in a tree directory representation:
   (fnames nil :type list))
+
+(defstruct <ls1r-state>
+  ;; Stack of current directories
+  (dirs nil :type list))
 
 (defstruct <parsed-lines>
   ;; (number 0 :type integer)
@@ -96,7 +100,8 @@ exec ros -Q -- $0 "$@"
   (as-find nil :type list)
   (as-ls1r nil :type list)
   (as-ls1rl nil :type list)
-  (tree-state (make-<tree-state>) :type <tree-state>))
+  (tree-state (make-<tree-state>) :type <tree-state>)
+  (ls1r-state (make-<ls1r-state>) :type <ls1r-state>))
 
 (declaim (ftype (function (<parsed-lines> <format>) list) get-parsed-lines))
 (defun get-parsed-lines (PARSED-LINES FORMAT)
@@ -398,17 +403,30 @@ It can be used together with (pop-until ...)
 
 (declaim (ftype (function (string array) (or null integer)) parse-fmode-str))
 (defun parse-fmode-str (STR FMODE-SPECS)
-  "TODO"
-  (let* ((char-to-value (lambda (ch chs-map) (let ((spec (gethash ch chs-map)))
-                                               (if spec (<fmode-spec>-value spec) 0))))
-         (char-values (map 'list char-to-value STR FMODE-SPECS))
+  "Parses 10-characters string like \"-rw-r--r--\" to standard file mode value, if it is not
+a 10-character string like this, nil is returned"
+  (let* ((char-to-value (lambda (ch chs-map)
+                          (let ((spec (gethash ch chs-map)))
+                            (if spec
+                                (<fmode-spec>-value spec)
+                                ;; else if such char in such position is unknown - don't ignore it,
+                                ;; ie, don't treat it as 0, but as NIL, which will lead to NIL result
+                                nil))))
+         (char-values (remove nil
+                              ;; remove all NILs (positions with unknown chars):
+                              ;; 1) it will lead to final NIL result
+                              ;; 2) else reduce with OR (logior) will lead to error
+                              ;;    "The value NIL is not of type INTEGER"
+                              (map 'list char-to-value STR FMODE-SPECS)))
          (fmode (if (= (length *fmode-bits*) (length char-values))
                     (reduce #'logior char-values)
                     nil)))
     fmode))
 
-(defun parse-line-as-ls1r (PARSED-LINES STR)
-  ) ;; TODO
+(defun parse-line-as-ls1r (PARSED-LINES STR) ;; TODO
+  (let* ((last-i (1- (length STR)))
+         (fname nil))
+    ))
 
 (defun parse-line-as-ls1rl (PARSED-LINES STR)
   ) ;; TODO
@@ -684,8 +702,7 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
     (unless (funcall eqfn va vb)
       (format nil "~A: unequal~%  ~A~%vs.~%  ~A" getter va vb))))
 
-(defgeneric cmp-my-structs (a b)
-  )
+(defgeneric cmp-my-structs (a b))
 
 (defmethod cmp-my-structs ((a <parsed-line>) (b <parsed-line>))
   (format nil "~{~a~^~%~}"
@@ -923,6 +940,17 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
           (5am:is (eql
                    #x8000
                    (parse-fmode-str "----------" *fmode-bits*))))
+
+(5am:test parse-fmode-str--test5
+          (5am:is (eql
+                   #x81ed
+                   (parse-fmode-str "-rwxr-xr-xABC" *fmode-bits*))))
+
+(5am:test parse-fmode-str--test6
+          (5am:is (eql
+                   nil
+                   (parse-fmode-str "-rZxr-xr-x" *fmode-bits*))))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
