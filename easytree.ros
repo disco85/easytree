@@ -297,7 +297,41 @@ It can be used together with (pop-until ...)
           parsed-line)))))
 
 (defun parse-line-as-find (PARSED-LINES STR)
-  ) ;; TODO
+  "Detects that the line looks as a line from `find`-like output. Returns
+  NIL (not `find`-like line) or <parsed-line> modifying PARSED-LINES"
+  (let* ((last-i (1- (length STR)))
+         (fname nil)
+         (lines (get-parsed-lines PARSED-LINES :find))
+         (last-parsed-line (car (last lines)))
+         (last-parsed-line-fname (when last-parsed-line (<parsed-line>-fname last-parsed-line))))
+    (when (and (> last-i 0) (char/= #\: (ch-at STR last-i)))
+      (cond
+        ((starts-with-p STR "/")
+         (setf fname STR))
+        ((starts-with-p STR "./")
+         (setf fname STR))
+        ((starts-with-p STR "../")
+         (setf fname STR))
+        ((and (starts-with-p STR "'./") (ends-with-p STR "'"))
+         (setf fname (subseq STR 1 last-i)))
+        ((and (starts-with-p STR "\"./") (ends-with-p STR "\""))
+         (setf fname (subseq STR 1 last-i)))
+        ((and (starts-with-p STR "'../") (ends-with-p STR "'"))
+         (setf fname (subseq STR 1 last-i)))
+        ((and (starts-with-p STR "\"../") (ends-with-p STR "\""))
+         (setf fname (subseq STR 1 last-i))))
+      (when (not (emptyp fname))
+        (when (and last-parsed-line (starts-with-p fname last-parsed-line-fname))
+          ;; Last parsed line  (of :find format) is prefix of mine, then it was a dir,
+          ;; me - an entry inside that dir, so mark as :dir the last parsed line's fsobj:
+          (modify-last-parsed-line PARSED-LINES
+                                   :find
+                                   (lambda (last-parsed-line)
+                                     (setf (<parsed-line>-fsobj last-parsed-line) :dir)
+                                     last-parsed-line)))
+        (add-to-parsed-lines PARSED-LINES :find
+                             (make-<parsed-line> :format :find :fname fname :fmode 0 :fsobj :file))))))
+
 
 (defun parse-line-as-ls1r (PARSED-LINES STR)
   ) ;; TODO
@@ -340,33 +374,6 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
 ;; +-----  file  <- all lines will start with the same spacing policy
 
 ;; TODO add :unknown to :dir :file - CLI opt will force it to dir/file
-
-(defun parse-line-as-find (PARSED-LINES STR)
-  "TODO"
-  (let* ((last-i (1- (length STR)))
-         (fname nil)
-         (lines (get-parsed-lines PARSED-LINES :find))
-         (last-parsed-line (car (last lines))))
-    (when (and (> last-i 0) (char/= #\: (ch-at STR last-i)))
-      (cond
-        ((starts-with-p STR "/") (setf fname STR))
-        ((starts-with-p STR "./") (setf fname STR))
-        ((starts-with-p STR "../") (setf fname STR))
-        ((and (starts-with-p STR "'./") (ends-with-p STR "'")) (setf fname (subseq STR 1 last-i)))
-        ((and (starts-with-p STR "\"./") (ends-with-p STR "\"")) (setf fname (subseq STR 1 last-i)))
-        ((and (starts-with-p STR "'../") (ends-with-p STR "'")) (setf fname (subseq STR 1 last-i)))
-        ((and (starts-with-p STR "\"../") (ends-with-p STR "\"")) (setf fname (subseq STR 1 last-i))))
-      (when (not (emptyp fname))
-        (when (and last-parsed-line (starts-with-p fname last-parsed-line))
-          ;; Last parsed line  (of :find format) is prefix of mine, then it was a dir,
-          ;; me - an entry inside that dir, so mark as :dir the last parsed line's fsobj:
-          (modify-last-parsed-line PARSED-LINES
-                                   :find
-                                   (lambda (last-parsed-line)
-                                     (setf (<parsed-line>-fsobj last-parsed-line) :dir)
-                                     last-parsed-line)))
-        (add-to-parsed-lines PARSED-LINES :find
-                             (make-<parsed-line> :format :find :fname fname :fmode 0 :fsobj :file))))))
 
 
 (defparameter *unicode-whitespace-chars*
@@ -799,6 +806,31 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
                      (parse-line-as-tree pls "     +----file-2")
                      (parse-line-as-tree pls "+---file-3")
                      (parse-line-as-tree pls "tmp/")
+                     pls))))
+
+(setf fiveam:*debug-on-error* t
+      fiveam:*debug-on-failure* t)
+
+(5am:test parse-line-as-find--test1
+          (5am:is (equalp
+                   (make-<parsed-lines>
+                    :dir-from-final-slash t
+                    :as-find (list (make-<parsed-line> :format :find :fname "./dir1" :fsobj :dir)
+                                   (make-<parsed-line> :format :find :fname "./dir1/dir 11" :fsobj :dir)
+                                   (make-<parsed-line> :format :find :fname "./dir1/dir 11/file11" :fsobj :file)
+                                   (make-<parsed-line> :format :find :fname "./dir1/dir 11/file12" :fsobj :file)
+                                   (make-<parsed-line> :format :find :fname "./dir2/dir 21" :fsobj :dir)
+                                   (make-<parsed-line> :format :find :fname "./dir2/dir 21/file21" :fsobj :file)
+                                   (make-<parsed-line> :format :find :fname "./dir3" :fsobj :file))
+                    :tree-state (make-<tree-state> :indents nil :fnames nil))
+                   (let ((pls (make-<parsed-lines>)))
+                     (parse-line-as-find pls "./dir1")
+                     (parse-line-as-find pls "'./dir1/dir 11'")
+                     (parse-line-as-find pls "'./dir1/dir 11/file11'")
+                     (parse-line-as-find pls "'./dir1/dir 11/file12'")
+                     (parse-line-as-find pls "'./dir2/dir 21'")
+                     (parse-line-as-find pls "'./dir2/dir 21/file21'")
+                     (parse-line-as-find pls "./dir3")
                      pls))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
