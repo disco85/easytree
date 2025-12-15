@@ -919,6 +919,11 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
                    nil
                    (parse-fmode-str "-rwxr-" *fmode-bits*))))
 
+(5am:test parse-fmode-str--test4
+          (5am:is (eql
+                   #x8000
+                   (parse-fmode-str "----------" *fmode-bits*))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun cli-tests-handler (cmd)
