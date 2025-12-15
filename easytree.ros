@@ -211,13 +211,13 @@ It can be used together with (pop-until ...)
              (char/= #\: (ch-at STR last-i)))
       ;; skip chars that are not alphanum (decoration lines, spaces):
       (loop :initially (setf i 0)
-            :for ch = (ch-at STR i)
+            :for ch := (ch-at STR i)
             :while (< i last-i)
             :until (alphanumericp ch)
             :do (incf i))
       ;; take all alphanum of `fname` and stop on the first non-alphanum after `fname` (ignoring spaces):
       (loop :initially (setf j last-i)
-            :for ch = (ch-at STR j)
+            :for ch := (ch-at STR j)
             :until (alphanumericp ch)
             :do (decf j)
             :finally (if (= j last-i)
@@ -331,6 +331,11 @@ It can be used together with (pop-until ...)
                                      last-parsed-line)))
         (add-to-parsed-lines PARSED-LINES :find
                              (make-<parsed-line> :format :find :fname fname :fmode 0 :fsobj :file))))))
+
+
+(declaim (ftype (function (string) (or null integer))))
+(defun parse-fmode-str (STR)
+  )
 
 
 (defun parse-line-as-ls1r (PARSED-LINES STR)
@@ -454,7 +459,7 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
                      (and
                       ;; 17 - minimum length with minimal column sizes and 1 space-delimiter:
                       (>= last-i 17)
-                      (loop :for ch = (ch-at line i)
+                      (loop :for ch := (ch-at line i)
                             :while (< i last-i)
                             :while (or (char= ch #\-) (char= ch #\r) (char= ch #\w) (char= ch #\x)
                                        (char= ch #\l) (char= ch #\b) (char= ch #\c) (char= ch #\p)
