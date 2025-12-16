@@ -207,6 +207,9 @@ It can be used together with (pop-until ...)
       (reduce (lambda (e1 e2) (concatenate 'string e1 sep e2))
               (if part (append parts (list part)) parts))))
 
+;; This functions can produce duplicates of file entries (bcs input can contain them in a way,
+;; when it is not easy to remove duplicates on the phase of parsing). When they will be used
+;; to reproduce directories/files - it should be handled (if it exists, not to make it):
 (declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-tree))
 (declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-find))
 (declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-ls1r))
@@ -411,7 +414,8 @@ a 10-character string like this, nil is returned"
     fmode))
 
 (defun parse-line-as-ls1r (PARSED-LINES STR)
-  "TODO"
+  "Detects that the line looks as a line from `ls -1R`-like output. Returns
+  NIL (not `ls -1R`-like line) or <parsed-line> modifying PARSED-LINES"
   (let* ((last-i (1- (length STR)))
          (fname nil)
          (fsobj nil))
