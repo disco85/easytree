@@ -219,7 +219,7 @@ It can be used together with (pop-until ...)
 '((fname . file-name) (fname-start . index-of-fname) (fname-stop . index-or-NIL))"
   (let ((last-i (1- (length STR))) (i 0) (j 0) (fname ""))
     (when
-        (and (> last-i 0)
+        (and (>= last-i 0)
              (char/= #\: (ch-at STR last-i)))
       ;; skip chars that are not alphanum (decoration lines, spaces):
       (loop :initially (setf i 0)
@@ -318,7 +318,7 @@ It can be used together with (pop-until ...)
          (last-parsed-line-fname (when last-parsed-line (<parsed-line>-fname last-parsed-line)))
          (unquoted-str (unquote-str STR)))
     (when
-        (and (> last-i 0)
+        (and (>= last-i 0)
              ;; it should not end with ':':
              (char/= #\: (ch-at STR last-i)))
       (when (or (starts-with-p unquoted-str "/")
@@ -415,7 +415,7 @@ a 10-character string like this, nil is returned"
   (let* ((last-i (1- (length STR)))
          (fname nil)
          (fsobj nil))
-    (when (and (> last-i 0)
+    (when (and (>= last-i 0)
                (eq nil (parse-fmode-str STR *fmode-bits*)))
       (symbol-macrolet
           ((state-dir (<ls1r-state>-dir (<parsed-lines>-ls1r-state PARSED-LINES)))
@@ -444,6 +444,8 @@ a 10-character string like this, nil is returned"
               (setf (gethash fname state-fname-hashes)
                     (hash-table-count state-fname-hashes))
               (setf fsobj :file)))
+        ;; (dbg (format nil "!!!!!!!!!!!!! STR: ~A  fname: ~A~%~A~%" STR fname
+        ;;              (maphash (lambda (k v) (format t "  ~A => ~A~%" k v)) state-fname-hashes)))
         (add-to-parsed-lines PARSED-LINES :ls1r
                              (make-<parsed-line> :format :ls1r :fname fname :fmode 0 :fsobj fsobj))))))
 
@@ -521,7 +523,7 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
     (when
         (or
          (when (string= "" (trim-any-whitespaces line)) (incf uniq-features))
-         (and (> last-i 0)
+         (and (>= last-i 0)
               ;; If there are spaces, the line must start with ' or " (else: not our case, T)
               (implies (find #\Space line :test #'char=) (case (ch-at line 0) (#\' t) (#\" t)))
               (case (ch-at line 0)
@@ -992,17 +994,21 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                                    (make-<parsed-line> :format :ls1r :fname "../Sub Dir/file2" :fsobj :file)
                                    (make-<parsed-line> :format :ls1r :fname "../Sub Dir/A" :fsobj :dir)
                                    (make-<parsed-line> :format :ls1r :fname "../Sub Dir/file3" :fsobj :file)
+                                   (make-<parsed-line> :format :ls1r :fname "../Sub Dir/A" :fsobj :dir)
                                    (make-<parsed-line> :format :ls1r :fname "../Sub Dir/A/file 4" :fsobj :file))
                     :ls1r-state (make-<ls1r-state>
                                  :dir "../Sub Dir/A"
-                                 :fname-hashes (hash-literal ".." 0
-                                                             "file 1" 1
-                                                             "../Sub Dir" 2
-                                                             "../Sub Dir/file2" 3
-                                                             "../Sub Dir/A" 4
-                                                             "../Sub Dir/file3" 5
-                                                             "../Sub Dir/A/file 4" 6)))
-                   (let ((pls (make-<parsed-lines>)))
+                                 :fname-hashes
+                                 (hash-literal
+                                  ".." 0
+                                  "../file 1" 1
+                                  "../Sub Dir" 2
+                                  "../Sub Dir/file2" 3
+                                  "../Sub Dir/A" 4
+                                  "../Sub Dir/file3" 5
+                                  "../Sub Dir/A/file 4" 6)))
+                   (let (;;(*dbg-cond* t)
+                         (pls (make-<parsed-lines>)))
                      (parse-line-as-ls1r pls "..:")
                      (parse-line-as-ls1r pls "'file 1'")
                      (parse-line-as-ls1r pls "'../Sub Dir':")
