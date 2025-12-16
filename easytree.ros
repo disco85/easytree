@@ -453,8 +453,65 @@ a 10-character string like this, nil is returned"
         (add-to-parsed-lines PARSED-LINES :ls1r
                              (make-<parsed-line> :format :ls1r :fname fname :fmode 0 :fsobj fsobj))))))
 
-(defun parse-line-as-ls1rl (PARSED-LINES STR)
-  ) ;; TODO
+(defun match-total-files-str (STR)
+  "Matches a string \"total [0-9]+\" without regexp. If cannot match it, returns NIL"
+  (let ((i 0))
+    (and
+     (loop :initially (setf i 0)
+           :for ch1 :across "total "
+           :for ch2 :across STR
+           :do (incf i)
+           :while (char= ch1 ch2)
+           :finally (return (= i (length "total "))))
+     (loop :for ch :across (subseq STR i)
+           :do (incf i)
+           :while (digit-char-p ch)
+           :finally (return (and
+                             ;; at least one digit was found:
+                             (> i (length "total "))
+                             ;; ch is NIL if zero increments, so it's second condition.
+                             ;; it means we stopped on digit or whitespace:
+                             (or (digit-char-p ch) (find ch "\r\n\t "))))))))
+
+(defun parse-line-as-ls1rl (PARSED-LINES STR) ;; TODO fix the code (it's copy-paste from parse-line-as-ls1r)
+  "Detects that the line looks as a line from `ls -1Rl`-like output. Returns
+  NIL (not `ls -1Rl`-like line) or <parsed-line> modifying PARSED-LINES"
+  (let* ((last-i (1- (length STR)))
+         (fname nil)
+         (fsobj nil))
+    (when (and (>= last-i 0)
+               (eq nil (parse-fmode-str STR *fmode-bits*)))
+      (symbol-macrolet
+          ((state-dir (<ls1r-state>-dir (<parsed-lines>-ls1r-state PARSED-LINES)))
+           (state-fname-hashes (<ls1r-state>-fname-hashes (<parsed-lines>-ls1r-state PARSED-LINES))))
+        (if (char= #\: (ch-at STR last-i))  ;; Hint of yet another ;; directory ("xyz:")
+            (progn
+              (setf fname (unquote-str (subseq STR 0 last-i)))
+              (setf fsobj :dir)
+              (multiple-value-bind (fname-pos fname-exists) (gethash fname state-fname-hashes)
+                (if fname-exists
+                    ;; If such fname has known position, find its <parsed-line> and set its fsobj to :dir,
+                    ;; btw, if it exists, then it has corresponding item in parsed lines of its format,
+                    ;; so we don't check NIL==get-parsed-lines (they are not empty):
+                    (setf (<parsed-line>-fsobj
+                           (nth fname-pos
+                                (get-parsed-lines PARSED-LINES :ls1r)))
+                          :dir)
+                    ;; else - remember fname's position:
+                    (setf (gethash fname state-fname-hashes)
+                          (hash-table-count state-fname-hashes))))
+              (setf state-dir fname))
+            (progn
+              (setf fname (unquote-str STR))
+              (setf fname (path-parts-to-str (list state-dir fname)))
+              ;; remember the position of fname:
+              (setf (gethash fname state-fname-hashes)
+                    (hash-table-count state-fname-hashes))
+              (setf fsobj :file)))
+        ;; (dbg (format nil "!!!!!!!!!!!!! STR: ~A  fname: ~A~%~A~%" STR fname
+        ;;              (maphash (lambda (k v) (format t "  ~A => ~A~%" k v)) state-fname-hashes)))
+        (add-to-parsed-lines PARSED-LINES :ls1r
+                             (make-<parsed-line> :format :ls1r :fname fname :fmode 0 :fsobj fsobj))))))
 
 (declaim (ftype (function (<format>) (function (<parsed-lines> string) (or null <parsed-line>))) get-parse-func))
 (defun get-parse-func (FORMAT)
