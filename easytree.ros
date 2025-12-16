@@ -51,18 +51,12 @@ exec ros -Q -- $0 "$@"
 (defun emptyp (x)
   (or (null x) (and (stringp x) (string= "" x))))
 
-
-;; (defmacro hash-literal (&rest pairs)
-;;   "Create a hash table from alternating key/value pairs:
-
-;; CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
-;; #<HASH-TABLE :TEST EQUAL :COUNT 2 {10026C5E73}>
-;; "
-;;   `(let ((table (make-hash-table :test 'equal)))
-;;      ,@(loop for (key val) on pairs by #'cddr
-;;              collect `(setf (gethash ,key table) ,val))
-;;      table))
-
+(defun unquote-str (STR)
+  "Unquotes string quoted in ' and \" (if a string is quoted, else returns it as is)"
+  (cond ((or (and (starts-with-p STR "'") (ends-with-p STR "'"))
+             (and (starts-with-p STR "\"") (ends-with-p STR "\"")))
+         (subseq STR 1 (1- (length STR))))
+        (t STR)))
 
 (deftype <fsobj> () '(member :file :dir))
 
@@ -75,7 +69,7 @@ exec ros -Q -- $0 "$@"
   (remove-if (lambda (fmt) (eq fmt FORMAT)) +formats+))
 
 (defstruct <parsed-line>
-  (format nil :type <format>)
+  (format nil :type (or null <format>))
   (fname "" :type string)
   (fmode 0 :type integer)
   (fsobj :file :type <fsobj>))
@@ -84,22 +78,23 @@ exec ros -Q -- $0 "$@"
   ;; Stack of indents in a tree directory representation,it is not 1,2,3, but any integers.
   ;; It's a list, not just one integer, bcs we can decrease depth from 30 to 12 and, if it
   ;; is an integer, we cannot know how many dirs we exited: one 30->12, two 30->20->12, ...:
-  (indents nil :type list)
+  (indents nil :type (or null list))
   ;; Stack of file/dir names in a tree directory representation:
-  (fnames nil :type list))
+  (fnames nil :type (or null list)))
 
 (defstruct <ls1r-state>
   ;; Stack of current directories
-  (dirs nil :type list))
+  (dir nil :type (or null string))
+  (fname-hashes (make-hash-table :test 'equal)))
 
 (defstruct <parsed-lines>
   ;; (number 0 :type integer)
-  (detected-format nil :type <format>)
+  (detected-format nil :type (or null <format>))
   (dir-from-final-slash t :type boolean)
-  (as-tree nil :type list)  ;; list of <parsed-line>
-  (as-find nil :type list)
-  (as-ls1r nil :type list)
-  (as-ls1rl nil :type list)
+  (as-tree nil :type (or null list))  ;; list of <parsed-line>
+  (as-find nil :type (or null list))
+  (as-ls1r nil :type (or null list))
+  (as-ls1rl nil :type (or null list))
   (tree-state (make-<tree-state>) :type <tree-state>)
   (ls1r-state (make-<ls1r-state>) :type <ls1r-state>))
 
@@ -212,7 +207,6 @@ It can be used together with (pop-until ...)
       (reduce (lambda (e1 e2) (concatenate 'string e1 sep e2))
               (if part (append parts (list part)) parts))))
 
-
 (declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-tree))
 (declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-find))
 (declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-ls1r))
@@ -321,23 +315,16 @@ It can be used together with (pop-until ...)
          (fname nil)
          (lines (get-parsed-lines PARSED-LINES :find))
          (last-parsed-line (car (last lines)))
-         (last-parsed-line-fname (when last-parsed-line (<parsed-line>-fname last-parsed-line))))
-    (when (and (> last-i 0) (char/= #\: (ch-at STR last-i)))
-      (cond
-        ((starts-with-p STR "/")
-         (setf fname STR))
-        ((starts-with-p STR "./")
-         (setf fname STR))
-        ((starts-with-p STR "../")
-         (setf fname STR))
-        ((and (starts-with-p STR "'./") (ends-with-p STR "'"))
-         (setf fname (subseq STR 1 last-i)))
-        ((and (starts-with-p STR "\"./") (ends-with-p STR "\""))
-         (setf fname (subseq STR 1 last-i)))
-        ((and (starts-with-p STR "'../") (ends-with-p STR "'"))
-         (setf fname (subseq STR 1 last-i)))
-        ((and (starts-with-p STR "\"../") (ends-with-p STR "\""))
-         (setf fname (subseq STR 1 last-i))))
+         (last-parsed-line-fname (when last-parsed-line (<parsed-line>-fname last-parsed-line)))
+         (unquoted-str (unquote-str STR)))
+    (when
+        (and (> last-i 0)
+             ;; it should not end with ':':
+             (char/= #\: (ch-at STR last-i)))
+      (when (or (starts-with-p unquoted-str "/")
+                (starts-with-p unquoted-str "./")
+                (starts-with-p unquoted-str "../"))
+        (setf fname unquoted-str))
       (when (not (emptyp fname))
         (when (and last-parsed-line (starts-with-p fname last-parsed-line-fname))
           ;; Last parsed line  (of :find format) is prefix of mine, then it was a dir,
@@ -423,10 +410,42 @@ a 10-character string like this, nil is returned"
                     nil)))
     fmode))
 
-(defun parse-line-as-ls1r (PARSED-LINES STR) ;; TODO
+(defun parse-line-as-ls1r (PARSED-LINES STR)
+  "TODO"
   (let* ((last-i (1- (length STR)))
-         (fname nil))
-    ))
+         (fname nil)
+         (fsobj nil))
+    (when (and (> last-i 0)
+               (eq nil (parse-fmode-str STR *fmode-bits*)))
+      (symbol-macrolet
+          ((state-dir (<ls1r-state>-dir (<parsed-lines>-ls1r-state PARSED-LINES)))
+           (state-fname-hashes (<ls1r-state>-fname-hashes (<parsed-lines>-ls1r-state PARSED-LINES))))
+        (if (char= #\: (ch-at STR last-i))  ;; Hint of yet another ;; directory ("xyz:")
+            (progn
+              (setf fname (unquote-str (subseq STR 0 last-i)))
+              (setf fsobj :dir)
+              (multiple-value-bind (fname-pos fname-exists) (gethash fname state-fname-hashes)
+                (if fname-exists
+                    ;; If such fname has known position, find its <parsed-line> and set its fsobj to :dir,
+                    ;; btw, if it exists, then it has corresponding item in parsed lines of its format,
+                    ;; so we don't check NIL==get-parsed-lines (they are not empty):
+                    (setf (<parsed-line>-fsobj
+                           (nth fname-pos
+                                (get-parsed-lines PARSED-LINES :ls1r)))
+                          :dir)
+                    ;; else - remember fname's position:
+                    (setf (gethash fname state-fname-hashes)
+                          (hash-table-count state-fname-hashes))))
+              (setf state-dir fname))
+            (progn
+              (setf fname (unquote-str STR))
+              (setf fname (path-parts-to-str (list state-dir fname)))
+              ;; remember the position of fname:
+              (setf (gethash fname state-fname-hashes)
+                    (hash-table-count state-fname-hashes))
+              (setf fsobj :file)))
+        (add-to-parsed-lines PARSED-LINES :ls1r
+                             (make-<parsed-line> :format :ls1r :fname fname :fmode 0 :fsobj fsobj))))))
 
 (defun parse-line-as-ls1rl (PARSED-LINES STR)
   ) ;; TODO
@@ -696,47 +715,59 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
     (nreverse results)))
 
 
-(defun cmp-slot (a b getter &optional (eqfn #'equal))
-  (let ((va (funcall getter a))
-        (vb (funcall getter b)))
-    (unless (funcall eqfn va vb)
-      (format nil "~A: unequal~%  ~A~%vs.~%  ~A" getter va vb))))
+;; (defun cmp-slot (a b getter &optional (eqfn #'equal))
+;;   (let ((va (funcall getter a))
+;;         (vb (funcall getter b)))
+;;     (unless (funcall eqfn va vb)
+;;       (format nil "~A: unequal~%  ~A~%vs.~%  ~A" getter va vb))))
 
-(defgeneric cmp-my-structs (a b))
+;; (defgeneric cmp-my-structs (a b))
 
-(defmethod cmp-my-structs ((a <parsed-line>) (b <parsed-line>))
-  (format nil "~{~a~^~%~}"
-           (remove nil (list (cmp-slot a b #'<parsed-line>-format)
-                             (cmp-slot a b #'<parsed-line>-fname)
-                             (cmp-slot a b #'<parsed-line>-fmode)
-                             (cmp-slot a b #'<parsed-line>-fsobj)))))
+;; (defmethod cmp-my-structs ((a <parsed-line>) (b <parsed-line>))
+;;   (format nil "~{~a~^~%~}"
+;;            (remove nil (list (cmp-slot a b #'<parsed-line>-format)
+;;                              (cmp-slot a b #'<parsed-line>-fname)
+;;                              (cmp-slot a b #'<parsed-line>-fmode)
+;;                              (cmp-slot a b #'<parsed-line>-fsobj)))))
 
-(defmethod cmp-my-structs ((a <tree-state>) (b <tree-state>))
-  (format nil "~{~a~^~%~}"
-          (remove nil (list (cmp-slot a b #'<tree-state>-indents)
-                            (cmp-slot a b #'<tree-state>-fnames)))))
+;; (defmethod cmp-my-structs ((a <tree-state>) (b <tree-state>))
+;;   (format nil "~{~a~^~%~}"
+;;           (remove nil (list (cmp-slot a b #'<tree-state>-indents)
+;;                             (cmp-slot a b #'<tree-state>-fnames)))))
 
-(defun cmp-struct-lists (l1 l2 &key (title ""))
-  (let ((len1 (length l1)) (len2 (length l2)))
-    (cond
-      ((> len1 len2) (list (format nil "First list is longer than the second ~A" title)))
-      ((< len1 len2) (list (format nil "Second list is longer than the first ~A" title)))
-      ((= len1 len2) (mapcar #'cmp-my-structs l1 l2)))))
+;; (defun cmp-struct-lists (l1 l2 &key (title ""))
+;;   (let ((len1 (length l1)) (len2 (length l2)))
+;;     (cond
+;;       ((> len1 len2) (list (format nil "First list is longer than the second ~A" title)))
+;;       ((< len1 len2) (list (format nil "Second list is longer than the first ~A" title)))
+;;       ((= len1 len2) (mapcar #'cmp-my-structs l1 l2)))))
 
 
-(defmethod cmp-my-structs ((a <parsed-lines>) (b <parsed-lines>))
-  (format nil "~{~a~^~%~}"
-          (remove nil `(,(cmp-slot a b #'<parsed-lines>-detected-format)
-                        ,(cmp-slot a b #'<parsed-lines>-dir-from-final-slash)
-                        ,@(cmp-struct-lists (<parsed-lines>-as-tree a) (<parsed-lines>-as-tree b) :title "(as-tree)")
-                        ,@(cmp-struct-lists (<parsed-lines>-as-find a) (<parsed-lines>-as-find b) :title "(as-find)")
-                        ,@(cmp-struct-lists (<parsed-lines>-as-ls1r a) (<parsed-lines>-as-ls1r b) :title "(as-ls1r)")
-                        ,@(cmp-struct-lists (<parsed-lines>-as-ls1rl a) (<parsed-lines>-as-ls1rl b) :title "(as-ls1rl)")
-                        ;; ,@(mapcar #'cmp-my-structs (<parsed-lines>-as-tree a) (<parsed-lines>-as-tree b))
-                        ;; ,@(mapcar #'cmp-my-structs (<parsed-lines>-as-find a) (<parsed-lines>-as-find b))
-                        ;; ,@(mapcar #'cmp-my-structs (<parsed-lines>-as-ls1r a) (<parsed-lines>-as-ls1r b))
-                        ;; ,@(mapcar #'cmp-my-structs (<parsed-lines>-as-ls1rl a) (<parsed-lines>-as-ls1rl b))
-                        ,(cmp-my-structs (<parsed-lines>-tree-state a) (<parsed-lines>-tree-state b))))))
+;; (defmethod cmp-my-structs ((a <parsed-lines>) (b <parsed-lines>))
+;;   (format nil "~{~a~^~%~}"
+;;           (remove nil `(,(cmp-slot a b #'<parsed-lines>-detected-format)
+;;                         ,(cmp-slot a b #'<parsed-lines>-dir-from-final-slash)
+;;                         ,@(cmp-struct-lists (<parsed-lines>-as-tree a) (<parsed-lines>-as-tree b) :title "(as-tree)")
+;;                         ,@(cmp-struct-lists (<parsed-lines>-as-find a) (<parsed-lines>-as-find b) :title "(as-find)")
+;;                         ,@(cmp-struct-lists (<parsed-lines>-as-ls1r a) (<parsed-lines>-as-ls1r b) :title "(as-ls1r)")
+;;                         ,@(cmp-struct-lists (<parsed-lines>-as-ls1rl a) (<parsed-lines>-as-ls1rl b) :title "(as-ls1rl)")
+;;                         ;; ,@(mapcar #'cmp-my-structs (<parsed-lines>-as-tree a) (<parsed-lines>-as-tree b))
+;;                         ;; ,@(mapcar #'cmp-my-structs (<parsed-lines>-as-find a) (<parsed-lines>-as-find b))
+;;                         ;; ,@(mapcar #'cmp-my-structs (<parsed-lines>-as-ls1r a) (<parsed-lines>-as-ls1r b))
+;;                         ;; ,@(mapcar #'cmp-my-structs (<parsed-lines>-as-ls1rl a) (<parsed-lines>-as-ls1rl b))
+;;                         ,(cmp-my-structs (<parsed-lines>-tree-state a) (<parsed-lines>-tree-state b))))))
+
+
+(defmacro hash-literal (&rest pairs)
+  "Create a hash table from alternating key/value pairs:
+
+CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
+#<HASH-TABLE :TEST EQUAL :COUNT 2 {10026C5E73}>
+"
+  `(let ((table (make-hash-table :test 'equal)))
+     ,@(loop for (key val) on pairs by #'cddr
+             collect `(setf (gethash ,key table) ,val))
+     table))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Test ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -951,6 +982,36 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
                    nil
                    (parse-fmode-str "-rZxr-xr-x" *fmode-bits*))))
 
+(5am:test parse-line-as-ls1r--test1
+          (5am:is (equalp
+                   (make-<parsed-lines>
+                    :dir-from-final-slash t
+                    :as-ls1r (list (make-<parsed-line> :format :ls1r :fname ".." :fsobj :dir)
+                                   (make-<parsed-line> :format :ls1r :fname "../file 1" :fsobj :file)
+                                   (make-<parsed-line> :format :ls1r :fname "../Sub Dir" :fsobj :dir)
+                                   (make-<parsed-line> :format :ls1r :fname "../Sub Dir/file2" :fsobj :file)
+                                   (make-<parsed-line> :format :ls1r :fname "../Sub Dir/A" :fsobj :dir)
+                                   (make-<parsed-line> :format :ls1r :fname "../Sub Dir/file3" :fsobj :file)
+                                   (make-<parsed-line> :format :ls1r :fname "../Sub Dir/A/file 4" :fsobj :file))
+                    :ls1r-state (make-<ls1r-state>
+                                 :dir "../Sub Dir/A"
+                                 :fname-hashes (hash-literal ".." 0
+                                                             "file 1" 1
+                                                             "../Sub Dir" 2
+                                                             "../Sub Dir/file2" 3
+                                                             "../Sub Dir/A" 4
+                                                             "../Sub Dir/file3" 5
+                                                             "../Sub Dir/A/file 4" 6)))
+                   (let ((pls (make-<parsed-lines>)))
+                     (parse-line-as-ls1r pls "..:")
+                     (parse-line-as-ls1r pls "'file 1'")
+                     (parse-line-as-ls1r pls "'../Sub Dir':")
+                     (parse-line-as-ls1r pls "file2")
+                     (parse-line-as-ls1r pls "A")
+                     (parse-line-as-ls1r pls "file3")
+                     (parse-line-as-ls1r pls "'../Sub Dir/A':")
+                     (parse-line-as-ls1r pls "'file 4'")
+                     pls))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
