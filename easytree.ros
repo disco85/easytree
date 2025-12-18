@@ -14,7 +14,7 @@ exec ros -Q -- $0 "$@"
 
 
 (defvar *dbg-cond* nil)
-(defun dbg (s &optional (x nil)) (when *dbg-cond* (format t "~%*** TRACE[~A]: ~S~% ***~%" s x)) x)
+(defun dbg (s &optional (x nil) &key (cond nil)) (when (or *dbg-cond* cond) (format t "~%*** TRACE[~A]: ~S~% ***~%" s x)) x)
 
 
 (defun implies (a b)
@@ -38,25 +38,159 @@ exec ros -Q -- $0 "$@"
              (string-equal SUFFIX (subseq STRING (- string-len suffix-len)))
              (string= SUFFIX (subseq STRING (- string-len suffix-len)))))))
 
-(declaim (ftype (function (string (or null integer)) (or null character)) ch-at))
-(defun ch-at (STRING I)
+
+(defun ch-at (STRING I &key (only-pos nil))
   (let ((len (length STRING)))
     (cond
       ((null I) nil)
       ((or (< I (- len)) (>= I len)) nil)
-      ((< I 0) (char STRING (+ len I)))
+      ((< I 0) (if only-pos nil
+                   (char STRING (+ len I))))
       (t (char STRING I)))))
 
 
 (defun emptyp (x)
   (or (null x) (and (stringp x) (string= "" x))))
 
-(defun unquote-str (STR)
+(defun unquote-str (STR)  ;; TODO not needed - another logic should be used
   "Unquotes string quoted in ' and \" (if a string is quoted, else returns it as is)"
   (cond ((or (and (starts-with-p STR "'") (ends-with-p STR "'"))
              (and (starts-with-p STR "\"") (ends-with-p STR "\"")))
          (subseq STR 1 (1- (length STR))))
         (t STR)))
+
+;; (defun reverse-string-in-place (s)
+;;   (let ((len (length s)))
+;;     (dotimes (i (floor len 2) s)
+;;       (rotatef (aref s i)
+;;                (aref s (- len i 1))))))
+
+;; Special characters for Unix shells requiring escaping:
+(defconstant +shell-special-characters+ "'`\"/!@#$%^&*()-_+={}[]|;:,.<>? '}")
+(defconstant +shell-string-special-characters+ "\"\\$`")
+
+;; TODO Quick Answer: Inside double-quoted strings in the Unix shell, you must escape ", \, $, and `.
+;; TODO Additionally, if history expansion is enabled, you may need to escape !
+;; TODO Ie, in "..." and in shell - special chars are not the same!!!
+(defun extract-ls-fname (STR) ;; TODO
+  ;; XXX escaped - $, *, ?, &, |, ;, (), {}, [], <, >, ", ', `, \, and whitespace
+  ;; https://stackoverflow.com/questions/15783701/which-characters-need-to-be-escaped-when-using-bash
+  ;; special="'\`\"/\!@#\$%^&*()-_+={\}[]|;:,.<>? '}"
+  (let ((pos (length STR))
+        (ch nil)
+        (spec-ch nil)
+        (is-special-ch nil)
+        (is-str-special-ch nil)
+        (failure-msg nil)
+        (fname nil))
+    (labels ((prev-char ()
+               (declare (optimize (safety 3) (speed 0)))
+               (declare (type (or null character) ch))
+               (if (<= pos 0)
+                   (setf ch nil)
+                   (progn
+                     (setf ch (ch-at STR (decf pos)))
+                     (setf is-special-ch (find ch +shell-special-characters+))
+                     (setf is-str-special-ch (find ch +shell-string-special-characters+))))
+               ch)
+             (back-char () (incf pos)))
+      (setf fname (with-output-to-string (res)
+                    (tagbody
+                     in-shell
+                       (case (prev-char)
+                         (#\\
+                          (go in-shell))
+                         (#\" (case (prev-char)
+                                (#\\
+                                 (write-char #\" res)
+                                 (go in-shell))
+                                (nil
+                                 (setf failure-msg "XXX")
+                                 (go end))
+                                (t
+                                 (back-char)
+                                 (go in-double-quotes))))
+                         (#\' (case (prev-char)
+                                (#\\
+                                 (write-char #\' res)
+                                 (go in-shell))
+                                (nil
+                                 (setf failure-msg "XXX")
+                                 (go end))
+                                (t
+                                 (back-char)
+                                 (go in-single-quotes))))
+                         (nil
+                          (go end))
+                         (#\Space
+                          (case (prev-char)
+                            (#\\
+                             (write-char ch res)
+                             (go in-shell))
+                            (nil
+                             (go end))
+                            (t (go end))))
+                         (t (if is-special-ch
+                                (progn (setf spec-ch ch)
+                                       (case (prev-char)
+                                         (#\\
+                                          (write-char ch res)
+                                          (go in-shell))
+                                         (nil
+                                          (setf failure-msg "XXX")
+                                          (go end))
+                                         (t
+                                          (setf failure-msg "XXX")
+                                          (go end))))
+                                (progn (write-char ch res)
+                                       (go in-shell)))))
+                     in-single-quotes
+                       (case (prev-char)
+                         (#\'
+                          (go in-shell))
+                         (nil
+                          (setf failure-msg "XXX")
+                          (go end))
+                         (t
+                          (write-char ch res)
+                          (go in-single-quotes)))
+                     in-double-quotes
+                       (case (prev-char)
+                         (nil
+                          (setf failure-msg "XXX")
+                          (go end))
+                         (#\"
+                          (case (prev-char)
+                            (#\\
+                             (write-char ch res)
+                             (go in-double-quotes))
+                            (nil
+                             (go in-shell))
+                            (t
+                             (back-char)
+                             (go in-shell))))
+                         (#\\ (go in-double-quotes))
+                         (t
+                          (if is-str-special-ch
+                              (progn
+                                (setf spec-ch ch)
+                                (case (prev-char)
+                                  (#\\
+                                   (write-char ch res)
+                                   (go in-double-quotes))
+                                  (nil
+                                   (setf failure-msg "XXX")
+                                   (go end))
+                                  (t
+                                   (setf failure-msg "XXX")
+                                   (go end))))
+                              (progn
+                                (write-char ch res)
+                                (go in-double-quotes)))))
+                     end)))
+      (if failure-msg
+          (cons 'fail failure-msg)
+          (cons 'fname (reverse fname))))))
 
 (deftype <fsobj> () '(member :file :dir))
 
@@ -87,6 +221,8 @@ exec ros -Q -- $0 "$@"
   (dir nil :type (or null string))
   (fname-hashes (make-hash-table :test 'equal)))
 
+(defstruct (<ls1rl-state> (:include <ls1r-state>)))
+
 (defstruct <parsed-lines>
   ;; (number 0 :type integer)
   (detected-format nil :type (or null <format>))
@@ -96,7 +232,8 @@ exec ros -Q -- $0 "$@"
   (as-ls1r nil :type (or null list))
   (as-ls1rl nil :type (or null list))
   (tree-state (make-<tree-state>) :type <tree-state>)
-  (ls1r-state (make-<ls1r-state>) :type <ls1r-state>))
+  (ls1r-state (make-<ls1r-state>) :type <ls1r-state>)
+  (ls1rl-state (make-<ls1rl-state>) :type <ls1rl-state>))
 
 (declaim (ftype (function (<parsed-lines> <format>) list) get-parsed-lines))
 (defun get-parsed-lines (PARSED-LINES FORMAT)
@@ -424,7 +561,7 @@ a 10-character string like this, nil is returned"
       (symbol-macrolet
           ((state-dir (<ls1r-state>-dir (<parsed-lines>-ls1r-state PARSED-LINES)))
            (state-fname-hashes (<ls1r-state>-fname-hashes (<parsed-lines>-ls1r-state PARSED-LINES))))
-        (if (char= #\: (ch-at STR last-i))  ;; Hint of yet another ;; directory ("xyz:")
+        (if (char= #\: (ch-at STR last-i))  ;; Hint of yet another directory ("xyz:")
             (progn
               (setf fname (unquote-str (subseq STR 0 last-i)))
               (setf fsobj :dir)
@@ -479,35 +616,38 @@ a 10-character string like this, nil is returned"
   (let* ((last-i (1- (length STR)))
          (fname nil)
          (fsobj nil))
-    (when (and (>= last-i 0)
-               (eq nil (parse-fmode-str STR *fmode-bits*)))
+    (when (and (>= last-i 0))
       (symbol-macrolet
-          ((state-dir (<ls1r-state>-dir (<parsed-lines>-ls1r-state PARSED-LINES)))
-           (state-fname-hashes (<ls1r-state>-fname-hashes (<parsed-lines>-ls1r-state PARSED-LINES))))
-        (if (char= #\: (ch-at STR last-i))  ;; Hint of yet another ;; directory ("xyz:")
-            (progn
-              (setf fname (unquote-str (subseq STR 0 last-i)))
-              (setf fsobj :dir)
-              (multiple-value-bind (fname-pos fname-exists) (gethash fname state-fname-hashes)
-                (if fname-exists
-                    ;; If such fname has known position, find its <parsed-line> and set its fsobj to :dir,
-                    ;; btw, if it exists, then it has corresponding item in parsed lines of its format,
-                    ;; so we don't check NIL==get-parsed-lines (they are not empty):
-                    (setf (<parsed-line>-fsobj
-                           (nth fname-pos
-                                (get-parsed-lines PARSED-LINES :ls1r)))
-                          :dir)
-                    ;; else - remember fname's position:
-                    (setf (gethash fname state-fname-hashes)
-                          (hash-table-count state-fname-hashes))))
-              (setf state-dir fname))
-            (progn
-              (setf fname (unquote-str STR))
-              (setf fname (path-parts-to-str (list state-dir fname)))
-              ;; remember the position of fname:
-              (setf (gethash fname state-fname-hashes)
-                    (hash-table-count state-fname-hashes))
-              (setf fsobj :file)))
+          ((state-dir (<ls1rl-state>-dir (<parsed-lines>-ls1rl-state PARSED-LINES)))
+           (state-fname-hashes (<ls1rl-state>-fname-hashes (<parsed-lines>-ls1rl-state PARSED-LINES))))
+        (cond
+          ;; String like "total 123":
+          ((match-total-files-str STR) nil)
+          ;; String like "./x/y/z:":
+          ((char= #\: (ch-at STR last-i))
+           (setf fname (unquote-str (subseq STR 0 last-i)))
+           (setf fsobj :dir)
+           (multiple-value-bind (fname-pos fname-exists) (gethash fname state-fname-hashes)
+             (if fname-exists
+                 ;; If such fname has known position, find its <parsed-line> and set its fsobj to :dir,
+                 ;; btw, if it exists, then it has corresponding item in parsed lines of its format,
+                 ;; so we don't check NIL==get-parsed-lines (they are not empty):
+                 (setf (<parsed-line>-fsobj
+                        (nth fname-pos
+                             (get-parsed-lines PARSED-LINES :ls1r)))
+                       :dir)
+                 ;; else - remember fname's position:
+                 (setf (gethash fname state-fname-hashes)
+                       (hash-table-count state-fname-hashes))))
+           (setf state-dir fname))
+          ;; Usual line starting with permissions like "-rw-r--r--":
+          (t
+           (setf fname (unquote-str STR))
+           (setf fname (path-parts-to-str (list state-dir fname)))
+           ;; remember the position of fname:
+           (setf (gethash fname state-fname-hashes)
+                 (hash-table-count state-fname-hashes))
+           (setf fsobj :file)))
         ;; (dbg (format nil "!!!!!!!!!!!!! STR: ~A  fname: ~A~%~A~%" STR fname
         ;;              (maphash (lambda (k v) (format t "  ~A => ~A~%" k v)) state-fname-hashes)))
         (add-to-parsed-lines PARSED-LINES :ls1r
