@@ -69,13 +69,15 @@ exec ros -Q -- $0 "$@"
 (defconstant +shell-special-characters+ "\\'`\"/!@#$%^&*()-_+={}[]|;:,.<>? '}")
 (defconstant +shell-string-special-characters+ "\"\\$`")
 
-;; TODO Quick Answer: Inside double-quoted strings in the Unix shell, you must escape ", \, $, and `.
-;; TODO Additionally, if history expansion is enabled, you may need to escape !
-;; TODO Ie, in "..." and in shell - special chars are not the same!!!
-(defun extract-ls-fname (STR) ;; TODO
-  ;; XXX escaped - $, *, ?, &, |, ;, (), {}, [], <, >, ", ', `, \, and whitespace
-  ;; https://stackoverflow.com/questions/15783701/which-characters-need-to-be-escaped-when-using-bash
-  ;; special="'\`\"/\!@#\$%^&*()-_+={\}[]|;:,.<>? '}"
+(declaim (ftype (function (string) cons) extract-ls-fname))
+(defun extract-ls-fname (STR)
+  "Extracts file name/path from `ls` shell command output looking for it at the end of
+a line (so it supports `ls -l..` and `ls ...`). It supports single/double quoting,
+escaping of special characters inside double quoting and in shell (no quoting inside
+signle quotes). In general, shell paths look:
+<inside-shell>'<inside-single-quoting>'\"<inside-double-quoting>\"
+"
+  ;; See about escaping: https://stackoverflow.com/questions/15783701/which-characters-need-to-be-escaped-when-using-bash
   (let ((pos (length STR))
         (ch nil)
         (spec-ch nil)
@@ -1313,6 +1315,16 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
           (5am:is (equal
                    '(fname . "abcdef")
                    (extract-ls-fname "xyz \"abc\"\"def\""))))
+
+(5am:test extract-ls-fname--test16
+          (5am:is (equal
+                   '(fname . "\"")
+                   (extract-ls-fname "'\"'"))))
+
+(5am:test extract-ls-fname--test17
+          (5am:is (equal
+                   '(fname . "'")
+                   (extract-ls-fname "\"'\""))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
