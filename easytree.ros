@@ -148,11 +148,11 @@ exec ros -Q -- $0 "$@"
                                         (go in-shell))
                                        (:eof
                                         (setf fail-msg
-                                              (format nil "EOF while unescaped shell special character '~A' on ~A" ch mark))
+                                              (format nil "EOF while unescaped shell special character '~A' on ~A" spec-ch mark))
                                         (go end))
                                        (t
                                         (setf fail-msg
-                                              (format nil "unescaped shell special character '~A' on ~A" ch mark))
+                                              (format nil "unescaped shell special character '~A' on ~A" spec-ch mark))
                                         (go end))))
                               (progn (write-char ch res)
                                      (go in-shell)))))
@@ -192,11 +192,11 @@ exec ros -Q -- $0 "$@"
                                    (go in-double-quotes))
                                   (:eof
                                    (setf fail-msg
-                                         (format nil "EOF while unescaped shell special character '~A' on ~A" ch mark))
+                                         (format nil "EOF while unescaped string special character '~A' on ~A" spec-ch mark))
                                    (go end))
                                   (t
                                    (setf fail-msg
-                                         (format nil "unescaped shell special character '~A' on ~A" ch mark))
+                                         (format nil "unescaped string special character '~A' on ~A" spec-ch mark))
                                    (go end))))
                               (progn
                                 (write-char ch res)
@@ -1246,8 +1246,33 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
 
 (5am:test extract-ls-fname--test2
           (5am:is (equal
-                   '(fail . "unclosed ' on 4") ;; FIXME 4
+                   '(fail . "unclosed ' on 4")
                    (extract-ls-fname "aaa'bb"))))
+
+(5am:test extract-ls-fname--test3
+          (5am:is (equal
+                   '(fail . "unclosed \" on 4")
+                   (extract-ls-fname "aaa\"bb"))))
+
+(5am:test extract-ls-fname--test4
+          (5am:is (equal
+                   '(fail . "unescaped shell special character '$' on 4")
+                   (extract-ls-fname "aaa$"))))
+
+(5am:test extract-ls-fname--test5
+          (5am:is (equal
+                   '(fail . "EOF while unescaped shell special character '$' on 1")
+                   (extract-ls-fname "$aaa"))))
+
+(5am:test extract-ls-fname--test6
+          (5am:is (equal
+                   '(fail . "unescaped string special character '$' on 5")
+                   (extract-ls-fname "\"aaa$\""))))
+
+(5am:test extract-ls-fname--test7
+          (5am:is (equal
+                   '(fail . "EOF while unescaped string special character '$' on 1")
+                   (extract-ls-fname "$\""))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
