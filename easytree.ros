@@ -1274,6 +1274,46 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                    '(fail . "EOF while unescaped string special character '$' on 1")
                    (extract-ls-fname "$\""))))
 
+(5am:test extract-ls-fname--test8
+          (5am:is (equal
+                   '(fname . "abc")
+                   (extract-ls-fname "abc"))))
+
+(5am:test extract-ls-fname--test9
+          (5am:is (equal
+                   '(fname . "abc def")
+                   (extract-ls-fname "abc\\ def"))))
+
+(5am:test extract-ls-fname--test10
+          (5am:is (equal
+                   '(fname . "abc$def")
+                   (extract-ls-fname "abc\\$def"))))
+
+(5am:test extract-ls-fname--test11
+          (5am:is (equal
+                   '(fname . "abc def")
+                   (extract-ls-fname "'abc def'"))))
+
+(5am:test extract-ls-fname--test12
+          (5am:is (equal
+                   '(fname . "abcdef")
+                   (extract-ls-fname "'abc''def'"))))
+
+(5am:test extract-ls-fname--test13
+          (5am:is (equal
+                   '(fname . "abc def")
+                   (extract-ls-fname "\"abc def\""))))
+
+(5am:test extract-ls-fname--test14
+          (5am:is (equal
+                   '(fname . "abcdef")
+                   (extract-ls-fname "\"abc\"\"def\""))))
+
+(5am:test extract-ls-fname--test15
+          (5am:is (equal
+                   '(fname . "abcdef")
+                   (extract-ls-fname "xyz \"abc\"\"def\""))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun cli-tests-handler (cmd)
