@@ -79,48 +79,54 @@ exec ros -Q -- $0 "$@"
   (let ((pos (length STR))
         (ch nil)
         (spec-ch nil)
-        (is-special-ch nil)
+        (is-shell-special-ch nil)
         (is-str-special-ch nil)
-        (failure-msg nil)
+        (fail-msg nil)
+        (mark 0)
         (fname nil))
     (labels ((prev-ch ()
                ;; reads previous char (we traverse from the end of STR to the beginning)
-               ;; (declare (optimize (safety 3) (speed 0)))
-               ;; (declare (type (or nil character) ch))
                (if (<= pos 0)
                    (setf ch :eof)
                    (progn
                      (setf ch (or (ch-at STR (decf pos)) :eof))
-                     (setf is-special-ch (find ch +shell-special-characters+))
+                     (setf is-shell-special-ch (find ch +shell-special-characters+))
                      (setf is-str-special-ch (find ch +shell-string-special-characters+))))
                ch)
              (back-ch ()
                ;; returns char back to the next read
-               (incf pos)))
+               (incf pos))
+             (mark-pos ()
+               ;; remember particular position which can be the start of fail
+               (setf mark (1+ pos))))
       (setf fname (with-output-to-string (res)
                     (tagbody
                      in-shell ;;;;;;;;;;;;;;;;;;;;;; IN SHELL ;;;;;;;;;;;;;;;;;;;;;;;
                        (case (prev-ch)
-                         (#\" (case (prev-ch)
-                                (#\\
-                                 (write-char #\" res)
-                                 (go in-shell))
-                                (:eof
-                                 (setf failure-msg (format nil "unclosed \" on ~A" pos))
-                                 (go end))
-                                (t
-                                 (back-ch)
-                                 (go in-double-quotes))))
-                         (#\' (case (prev-ch)
-                                (#\\
-                                 (write-char #\' res)
-                                 (go in-shell))
-                                (:eof
-                                 (setf failure-msg (format nil "unclosed ' on ~A" pos))
-                                 (go end))
-                                (t
-                                 (back-ch)
-                                 (go in-single-quotes))))
+                         (#\"
+                          (mark-pos)
+                          (case (prev-ch)
+                            (#\\
+                             (write-char #\" res)
+                             (go in-shell))
+                            (:eof
+                             (setf fail-msg (format nil "unclosed \" on ~A" mark))
+                             (go end))
+                            (t
+                             (back-ch)
+                             (go in-double-quotes))))
+                         (#\'
+                          (mark-pos)
+                          (case (prev-ch)
+                            (#\\
+                             (write-char #\' res)
+                             (go in-shell))
+                            (:eof
+                             (setf fail-msg (format nil "unclosed ' on ~A" mark))
+                             (go end))
+                            (t
+                             (back-ch)
+                             (go in-single-quotes))))
                          (:eof
                           (go end))
                          (#\Space
@@ -130,29 +136,32 @@ exec ros -Q -- $0 "$@"
                              (go in-shell))
                             (:eof
                              (go end))
-                            (t (go end))))
-                         (t (if is-special-ch
-                                (progn (setf spec-ch ch)
-                                       (case (prev-ch)
-                                         (#\\
-                                          (write-char spec-ch res)
-                                          (go in-shell))
-                                         (:eof
-                                          (setf failure-msg
-                                                (format nil "EOF while unescaped shell special character '~A' on ~A" ch pos))
-                                          (go end))
-                                         (t
-                                          (setf failure-msg
-                                                (format nil "unescaped shell special character '~A' on ~A" ch pos))
-                                          (go end))))
-                                (progn (write-char ch res)
-                                       (go in-shell)))))
+                            (t
+                             (go end))))
+                         (t
+                          (if is-shell-special-ch
+                              (progn (mark-pos)
+                                     (setf spec-ch ch)
+                                     (case (prev-ch)
+                                       (#\\
+                                        (write-char spec-ch res)
+                                        (go in-shell))
+                                       (:eof
+                                        (setf fail-msg
+                                              (format nil "EOF while unescaped shell special character '~A' on ~A" ch mark))
+                                        (go end))
+                                       (t
+                                        (setf fail-msg
+                                              (format nil "unescaped shell special character '~A' on ~A" ch mark))
+                                        (go end))))
+                              (progn (write-char ch res)
+                                     (go in-shell)))))
                      in-single-quotes  ;;;;;;;;;;;;;;;;;;; IN SINGLE QUOTE ;;;;;;;;;;;;;;;;;;;;;
                        (case (prev-ch)
                          (#\'
                           (go in-shell))
                          (:eof
-                          (setf failure-msg (format nil "unclosed ' on ~A" pos))
+                          (setf fail-msg (format nil "unclosed ' on ~A" mark))
                           (go end))
                          (t
                           (write-char ch res)
@@ -160,7 +169,7 @@ exec ros -Q -- $0 "$@"
                      in-double-quotes  ;;;;;;;;;;;;;;;;;;;; IN DOUBLE QUOTE ;;;;;;;;;;;;;;;;;;;;;;;;;
                        (case (prev-ch)
                          (:eof
-                          (setf failure-msg (format nil "unclosed \" on ~A" pos))
+                          (setf fail-msg (format nil "unclosed \" on ~A" mark))
                           (go end))
                          (#\"
                           (case (prev-ch)
@@ -175,26 +184,32 @@ exec ros -Q -- $0 "$@"
                          (t
                           (if is-str-special-ch
                               (progn
+                                (mark-pos)
                                 (setf spec-ch ch)
                                 (case (prev-ch)
                                   (#\\
                                    (write-char spec-ch res)
                                    (go in-double-quotes))
                                   (:eof
-                                   (setf failure-msg
-                                         (format nil "EOF while unescaped shell special character '~A' on ~A" ch pos))
+                                   (setf fail-msg
+                                         (format nil "EOF while unescaped shell special character '~A' on ~A" ch mark))
                                    (go end))
                                   (t
-                                   (setf failure-msg
-                                         (format nil "unescaped shell special character '~A' on ~A" ch pos))
+                                   (setf fail-msg
+                                         (format nil "unescaped shell special character '~A' on ~A" ch mark))
                                    (go end))))
                               (progn
                                 (write-char ch res)
                                 (go in-double-quotes)))))
                      end)))
-      (if failure-msg
-          (cons 'fail failure-msg)
-          (cons 'fname (reverse fname))))))
+      (cond
+        (fail-msg `(fail . ,fail-msg))
+        ((emptyp fname) '(fail . "empty path"))
+        (t `(fname . ,(reverse fname))))
+      ;; (if fail-msg
+      ;;     (cons 'fail fail-msg)
+      ;;     (cons 'fname (reverse fname)))
+      )))
 
 (deftype <fsobj> () '(member :file :dir))
 
@@ -1223,6 +1238,16 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      (parse-line-as-ls1r pls "'../Sub Dir/A':")
                      (parse-line-as-ls1r pls "'file 4'")
                      pls))))
+
+(5am:test extract-ls-fname--test1
+          (5am:is (equal
+                   '(fail . "empty path")
+                   (extract-ls-fname ""))))
+
+(5am:test extract-ls-fname--test2
+          (5am:is (equal
+                   '(fail . "unclosed ' on 4") ;; FIXME 4
+                   (extract-ls-fname "aaa'bb"))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
