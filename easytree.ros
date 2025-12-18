@@ -66,7 +66,7 @@ exec ros -Q -- $0 "$@"
 ;;                (aref s (- len i 1))))))
 
 ;; Special characters for Unix shells requiring escaping:
-(defconstant +shell-special-characters+ "'`\"/!@#$%^&*()-_+={}[]|;:,.<>? '}")
+(defconstant +shell-special-characters+ "\\'`\"/!@#$%^&*()-_+={}[]|;:,.<>? '}")
 (defconstant +shell-string-special-characters+ "\"\\$`")
 
 ;; TODO Quick Answer: Inside double-quoted strings in the Unix shell, you must escape ", \, $, and `.
@@ -83,9 +83,10 @@ exec ros -Q -- $0 "$@"
         (is-str-special-ch nil)
         (failure-msg nil)
         (fname nil))
-    (labels ((prev-char ()
+    (labels ((prev-ch ()
+               ;; reads previous char (we traverse from the end of STR to the beginning)
                ;; (declare (optimize (safety 3) (speed 0)))
-               ;; (declare (type (or :eof character) ch))
+               ;; (declare (type (or nil character) ch))
                (if (<= pos 0)
                    (setf ch :eof)
                    (progn
@@ -93,14 +94,14 @@ exec ros -Q -- $0 "$@"
                      (setf is-special-ch (find ch +shell-special-characters+))
                      (setf is-str-special-ch (find ch +shell-string-special-characters+))))
                ch)
-             (back-char () (incf pos)))
+             (back-ch ()
+               ;; returns char back to the next read
+               (incf pos)))
       (setf fname (with-output-to-string (res)
                     (tagbody
                      in-shell ;;;;;;;;;;;;;;;;;;;;;; IN SHELL ;;;;;;;;;;;;;;;;;;;;;;;
-                       (case (prev-char)
-                         (#\\
-                          (go in-shell))
-                         (#\" (case (prev-char)
+                       (case (prev-ch)
+                         (#\" (case (prev-ch)
                                 (#\\
                                  (write-char #\" res)
                                  (go in-shell))
@@ -108,9 +109,9 @@ exec ros -Q -- $0 "$@"
                                  (setf failure-msg (format nil "unclosed \" on ~A" pos))
                                  (go end))
                                 (t
-                                 (back-char)
+                                 (back-ch)
                                  (go in-double-quotes))))
-                         (#\' (case (prev-char)
+                         (#\' (case (prev-ch)
                                 (#\\
                                  (write-char #\' res)
                                  (go in-shell))
@@ -118,12 +119,12 @@ exec ros -Q -- $0 "$@"
                                  (setf failure-msg (format nil "unclosed ' on ~A" pos))
                                  (go end))
                                 (t
-                                 (back-char)
+                                 (back-ch)
                                  (go in-single-quotes))))
                          (:eof
                           (go end))
                          (#\Space
-                          (case (prev-char)
+                          (case (prev-ch)
                             (#\\
                              (write-char #\Space res)
                              (go in-shell))
@@ -132,7 +133,7 @@ exec ros -Q -- $0 "$@"
                             (t (go end))))
                          (t (if is-special-ch
                                 (progn (setf spec-ch ch)
-                                       (case (prev-char)
+                                       (case (prev-ch)
                                          (#\\
                                           (write-char spec-ch res)
                                           (go in-shell))
@@ -147,7 +148,7 @@ exec ros -Q -- $0 "$@"
                                 (progn (write-char ch res)
                                        (go in-shell)))))
                      in-single-quotes  ;;;;;;;;;;;;;;;;;;; IN SINGLE QUOTE ;;;;;;;;;;;;;;;;;;;;;
-                       (case (prev-char)
+                       (case (prev-ch)
                          (#\'
                           (go in-shell))
                          (:eof
@@ -157,26 +158,25 @@ exec ros -Q -- $0 "$@"
                           (write-char ch res)
                           (go in-single-quotes)))
                      in-double-quotes  ;;;;;;;;;;;;;;;;;;;; IN DOUBLE QUOTE ;;;;;;;;;;;;;;;;;;;;;;;;;
-                       (case (prev-char)
+                       (case (prev-ch)
                          (:eof
                           (setf failure-msg (format nil "unclosed \" on ~A" pos))
                           (go end))
                          (#\"
-                          (case (prev-char)
+                          (case (prev-ch)
                             (#\\
                              (write-char ch res)
                              (go in-double-quotes))
                             (:eof
                              (go in-shell))
                             (t
-                             (back-char)
+                             (back-ch)
                              (go in-shell))))
-                         (#\\ (go in-double-quotes))
                          (t
                           (if is-str-special-ch
                               (progn
                                 (setf spec-ch ch)
-                                (case (prev-char)
+                                (case (prev-ch)
                                   (#\\
                                    (write-char spec-ch res)
                                    (go in-double-quotes))
