@@ -597,8 +597,9 @@ a 10-character string like this, nil is returned"
   "Detects that the line looks as a line from `ls -1R`-like output. Returns
   NIL (not `ls -1R`-like line) or <parsed-line> modifying PARSED-LINES"
   (let* ((last-i (1- (length STR)))
+         (str-is-not-empty (>= last-i 0))
          (fsobj nil)
-         (str-is-dir-hint (char= #\: (ch-at STR last-i)))
+         (str-is-dir-hint (when str-is-not-empty (char= #\: (ch-at STR last-i))))
          (fname-extraction (extract-ls-fname (if str-is-dir-hint
                                                  (subseq STR 0 last-i)
                                                  STR)))
@@ -744,6 +745,7 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
       (dolist (fmt +formats+)
         (let ((fmt-fail-msg (get-parsed-lines-fail-msg PARSED-LINES fmt)))
           (when fmt-fail-msg (format *error-output* "*** ERROR [~A]: ~A~%" fmt fmt-fail-msg)))))
+    (dbg (format nil "!!!!!!!!!!!!!!! ~A~%  active-formats: ~A~%" STR active-formats))
     (when (= 1 (length active-formats))
       ;; If there is only 1 active format, then set it as the detected one:
       (setf (<parsed-lines>-detected-format PARSED-LINES) (caar active-formats)))
@@ -1149,6 +1151,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                    nil
                    (parse-line-as-tree (make-<parsed-lines>)
                                        ""))))
+
 (5am:test parse-line-as-tree--test2
           (5am:is (equalp
                    (make-<parsed-line> :format :tree :fname "file" :fmode 0 :fsobj :file)
@@ -1204,6 +1207,12 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
 
 (5am:test parse-line-as-find--test1
           (5am:is (equalp
+                   nil
+                   (parse-line-as-find (make-<parsed-lines>)
+                                       ""))))
+
+(5am:test parse-line-as-find--test2
+          (5am:is (equalp
                    (make-<parsed-lines>
                     :dir-from-final-slash t
                     :as-find (list (make-<parsed-line> :format :find :fname "./dir1" :fsobj :dir)
@@ -1256,6 +1265,12 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
 
 (5am:test parse-line-as-ls1r--test1
           (5am:is (equalp
+                   nil
+                   (parse-line-as-ls1r (make-<parsed-lines>)
+                                       ""))))
+
+(5am:test parse-line-as-ls1r--test2
+          (5am:is (equalp
                    (make-<parsed-lines>
                     :dir-from-final-slash t
                     :as-ls1r (list (make-<parsed-line> :format :ls1r :fname ".." :fsobj :dir)
@@ -1290,6 +1305,12 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      pls))))
 
 (5am:test parse-line-as-ls1rl--test1
+          (5am:is (equalp
+                   nil
+                   (parse-line-as-ls1rl (make-<parsed-lines>)
+                                        ""))))
+
+(5am:test parse-line-as-ls1rl--test2
           (5am:is (equalp
                    (make-<parsed-lines>
                     :dir-from-final-slash t
@@ -1346,7 +1367,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      pls))))
 
 (5am:test parse-line--test1
-          (5am:is (equal
+          (5am:is (eql
                    :ls1r
                    (let (;;(*dbg-cond* t)
                          (pls (make-<parsed-lines>)))
@@ -1358,6 +1379,32 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      (parse-line pls "file3")
                      (parse-line pls "'../Sub Dir/A':")
                      (parse-line pls "'file 4'")
+                     (<parsed-lines>-detected-format pls)))))
+
+(5am:test parse-line--test2
+          (5am:is (eql
+                   :ls1rl
+                   (let ((*dbg-cond* t)
+                         (pls (make-<parsed-lines>)))
+                     (parse-line pls "..:")
+                     (parse-line pls "total 1")
+                     (parse-line pls "-rw-r--r-- 1 alex alex      0 Dec 19 09:36 '*'")
+                     (parse-line pls "-rw-r--r-- 2 alex alex      1 Dec 19 09:36 '$'")
+                     (parse-line pls "'../Sub Dir_':")
+                     (parse-line pls "total 2")
+                     (parse-line pls "")
+                     (parse-line pls "'../Sub Dir':")
+                     (parse-line pls "total 3")
+                     (parse-line pls "-rw-r--r-- 1 alex alex     12 Dec 19 09:36 file1")
+                     (parse-line pls "drwxr-xr-x 1 alex alex      0 Dec 19 09:36 \"Dir ' X\"")
+                     (parse-line pls "-rwxr-xr-x 1 alex alex   9999 Dec 19 09:36 'my app'")
+                     (parse-line pls "'../Sub Dir/A':")
+                     (parse-line pls "total 4")
+                     (parse-line pls "-rw-r--r-- 1 alex alex     34 Dec 19 09:36 file2")
+                     (parse-line pls "-rw-r--r-- 1 alex alex   1234 Dec 19 09:36 file3")
+                     (parse-line pls "'../Sub Dir/C':")
+                     (parse-line pls "total 5")
+                     (parse-line pls "")
                      (<parsed-lines>-detected-format pls)))))
 
 (5am:test extract-ls-fname--test1
