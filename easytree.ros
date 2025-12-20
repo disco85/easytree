@@ -662,7 +662,7 @@ a 10-character string like this, nil is returned"
                              ;; it means we stopped on digit or whitespace:
                              (or (digit-char-p ch) (find ch "\r\n\t "))))))))
 
-(defun parse-line-as-ls1rl (PARSED-LINES STR) ;; TODO fix the code (it's copy-paste from parse-line-as-ls1r)
+(defun parse-line-as-ls1rl (PARSED-LINES STR)
   "Detects that the line looks as a line from `ls -1Rl`-like output. Returns
   NIL (not `ls -1Rl`-like line) or <parsed-line> modifying PARSED-LINES"
   "Detects that the line looks as a line from `ls -1R`-like output. Returns
@@ -702,7 +702,7 @@ a 10-character string like this, nil is returned"
            (setf state-dir fname)
            (add-to-parsed-lines PARSED-LINES :ls1rl
                                 (make-<parsed-line> :format :ls1rl :fname fname :fmode fmode :fsobj fsobj)))
-          (fname
+          ((and fmode fname)
            (setf fname (path-parts-to-str (list state-dir fname)))
            ;; remember the position of fname:
            (setf (gethash fname state-fname-hashes)
