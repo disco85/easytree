@@ -678,6 +678,7 @@ a 10-character string like this, nil is returned"
          (fname (when (eq 'fname (car fname-extraction)) (cdr fname-extraction)))
          (fmode (or (when (and (not str-is-dir-hint) (not str-is-total-hint)) (parse-fmode-str STR *fmode-bits*))
                     0))
+         (fmode-dir (/= 0 (logand #x4000 fmode)))
          (fail-msg (when (eq 'fail (car fname-extraction)) (cdr fname-extraction))))
     (when (and str-is-not-empty (not str-is-total-hint))
       (symbol-macrolet
@@ -706,7 +707,7 @@ a 10-character string like this, nil is returned"
            ;; remember the position of fname:
            (setf (gethash fname state-fname-hashes)
                  (hash-table-count state-fname-hashes))
-           (setf fsobj :file)
+           (if fmode-dir (setf fsobj :dir) (setf fsobj :file))
            (add-to-parsed-lines PARSED-LINES :ls1rl
                                 (make-<parsed-line> :format :ls1rl :fname fname :fmode 0 :fsobj fsobj)))
           ((<parsed-lines>-verbose PARSED-LINES)
@@ -1290,24 +1291,34 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                    (make-<parsed-lines>
                     :dir-from-final-slash t
                     :as-ls1rl (list (make-<parsed-line> :format :ls1rl :fname ".." :fsobj :dir)
-                                    (make-<parsed-line> :format :ls1rl :fname "../file 1" :fsobj :file)
+                                    (make-<parsed-line> :format :ls1rl :fname "../*" :fsobj :file)
+                                    (make-<parsed-line> :format :ls1rl :fname "../$" :fsobj :file)
+                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir_" :fsobj :dir)
                                     (make-<parsed-line> :format :ls1rl :fname "../Sub Dir" :fsobj :dir)
-                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/file2" :fsobj :file)
+                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/file1" :fsobj :file)
+                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/Dir ' X" :fsobj :dir)
+                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/my app" :fsobj :file)
                                     (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/A" :fsobj :dir)
-                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/file3" :fsobj :file)
-                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/A" :fsobj :dir)
-                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/A/file 4" :fsobj :file))
+                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/A/file2" :fsobj :file)
+                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/A/file3" :fsobj :file)
+                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/C" :fsobj :dir)
+                                    )
                     :ls1rl-state (make-<ls1rl-state>
-                                  :dir "../Sub Dir/A"
+                                  :dir "../Sub Dir/C"
                                   :fname-hashes
                                   (hash-literal
                                    ".." 0
-                                   "../file 1" 1
-                                   "../Sub Dir" 2
-                                   "../Sub Dir/file2" 3
-                                   "../Sub Dir/A" 4
-                                   "../Sub Dir/file3" 5
-                                   "../Sub Dir/A/file 4" 6)))
+                                   "../*" 1
+                                   "../$" 2
+                                   "../Sub Dir_" 3
+                                   "../Sub Dir" 4
+                                   "../Sub Dir/file1" 5
+                                   "../Sub Dir/Dir ' X" 6
+                                   "../Sub Dir/my app" 7
+                                   "../Sub Dir/A" 8
+                                   "../Sub Dir/A/file2" 9
+                                   "../Sub Dir/A/file3" 10
+                                   "../Sub Dir/C" 11)))
                    (let (;;(*dbg-cond* t)
                          (pls (make-<parsed-lines>)))
                      (parse-line-as-ls1rl pls "..:")
@@ -1328,7 +1339,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      (parse-line-as-ls1rl pls "-rw-r--r-- 1 alex alex   1234 Dec 19 09:36 file3")
                      (parse-line-as-ls1rl pls "'../Sub Dir/C':")
                      (parse-line-as-ls1rl pls "total 123")
-                     (parse-line-as-ls1rl pls "total 123")
+                     (parse-line-as-ls1rl pls "")
                      pls))))
 
 (5am:test extract-ls-fname--test1
