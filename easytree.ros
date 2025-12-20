@@ -676,9 +676,9 @@ a 10-character string like this, nil is returned"
                                                  (subseq STR 0 last-i)
                                                  STR)))
          (fname (when (eq 'fname (car fname-extraction)) (cdr fname-extraction)))
-         (fmode (or (when (and (not str-is-dir-hint) (not str-is-total-hint)) (parse-fmode-str STR *fmode-bits*))
-                    0))
-         (fmode-dir (/= 0 (logand #x4000 fmode)))
+         (fmode (when (and (not str-is-dir-hint) (not str-is-total-hint)) (parse-fmode-str STR *fmode-bits*)))
+         (fmode-int (or fmode 0))
+         (fmode-dir (/= 0 (logand #x4000 fmode-int)))
          (fail-msg (when (eq 'fail (car fname-extraction)) (cdr fname-extraction))))
     (when (and str-is-not-empty (not str-is-total-hint))
       (symbol-macrolet
@@ -701,7 +701,7 @@ a 10-character string like this, nil is returned"
                        (hash-table-count state-fname-hashes))))
            (setf state-dir fname)
            (add-to-parsed-lines PARSED-LINES :ls1rl
-                                (make-<parsed-line> :format :ls1rl :fname fname :fmode fmode :fsobj fsobj)))
+                                (make-<parsed-line> :format :ls1rl :fname fname :fmode fmode-int :fsobj fsobj)))
           ((and fmode fname)
            (setf fname (path-parts-to-str (list state-dir fname)))
            ;; remember the position of fname:
@@ -709,7 +709,7 @@ a 10-character string like this, nil is returned"
                  (hash-table-count state-fname-hashes))
            (if fmode-dir (setf fsobj :dir) (setf fsobj :file))
            (add-to-parsed-lines PARSED-LINES :ls1rl
-                                (make-<parsed-line> :format :ls1rl :fname fname :fmode 0 :fsobj fsobj)))
+                                (make-<parsed-line> :format :ls1rl :fname fname :fmode fmode-int :fsobj fsobj)))
           ((<parsed-lines>-verbose PARSED-LINES)
            (setf (<parsed-lines>-ls1rl-fail-msg PARSED-LINES)
                  (format t "ERROR: cannot parse '~A': ~A~%" STR (or fail-msg "unknown error")))))
@@ -721,10 +721,10 @@ a 10-character string like this, nil is returned"
 (declaim (ftype (function (<format>) (function (<parsed-lines> string) (or null <parsed-line>))) get-parse-func))
 (defun get-parse-func (FORMAT)
   (ecase FORMAT
-    (:tree parse-line-as-tree)
-    (:find parse-line-as-find)
-    (:ls1r parse-line-as-ls1r)
-    (:ls1rl parse-line-as-ls1rl)))
+    (:tree #'parse-line-as-tree)
+    (:find #'parse-line-as-find)
+    (:ls1r #'parse-line-as-ls1r)
+    (:ls1rl #'parse-line-as-ls1rl)))
 
 (declaim (ftype (function (<parsed-lines> string) (or null list)) parse-line))
 (defun parse-line (PARSED-LINES STR)
@@ -744,6 +744,9 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
       (dolist (fmt +formats+)
         (let ((fmt-fail-msg (get-parsed-lines-fail-msg PARSED-LINES fmt)))
           (when fmt-fail-msg (format *error-output* "*** ERROR [~A]: ~A~%" fmt fmt-fail-msg)))))
+    (when (= 1 (length active-formats))
+      ;; If there is only 1 active format, then set it as the detected one:
+      (setf (<parsed-lines>-detected-format PARSED-LINES) (caar active-formats)))
     active-format-parsed-lines))
 
 ;; XXX "Permission denied" containing lines must be ignored!
@@ -1291,16 +1294,16 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                    (make-<parsed-lines>
                     :dir-from-final-slash t
                     :as-ls1rl (list (make-<parsed-line> :format :ls1rl :fname ".." :fsobj :dir)
-                                    (make-<parsed-line> :format :ls1rl :fname "../*" :fsobj :file)
-                                    (make-<parsed-line> :format :ls1rl :fname "../$" :fsobj :file)
+                                    (make-<parsed-line> :format :ls1rl :fname "../*" :fsobj :file :fmode 33188)
+                                    (make-<parsed-line> :format :ls1rl :fname "../$" :fsobj :file :fmode 33188)
                                     (make-<parsed-line> :format :ls1rl :fname "../Sub Dir_" :fsobj :dir)
                                     (make-<parsed-line> :format :ls1rl :fname "../Sub Dir" :fsobj :dir)
-                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/file1" :fsobj :file)
-                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/Dir ' X" :fsobj :dir)
-                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/my app" :fsobj :file)
+                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/file1" :fsobj :file :fmode 33188)
+                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/Dir ' X" :fsobj :dir :fmode 16877)
+                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/my app" :fsobj :file :fmode 33261)
                                     (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/A" :fsobj :dir)
-                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/A/file2" :fsobj :file)
-                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/A/file3" :fsobj :file)
+                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/A/file2" :fsobj :file :fmode 33188)
+                                    (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/A/file3" :fsobj :file :fmode 33188)
                                     (make-<parsed-line> :format :ls1rl :fname "../Sub Dir/C" :fsobj :dir)
                                     )
                     :ls1rl-state (make-<ls1rl-state>
@@ -1341,6 +1344,21 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      (parse-line-as-ls1rl pls "total 123")
                      (parse-line-as-ls1rl pls "")
                      pls))))
+
+(5am:test parse-line--test1
+          (5am:is (equal
+                   :ls1r
+                   (let (;;(*dbg-cond* t)
+                         (pls (make-<parsed-lines>)))
+                     (parse-line pls "..:")
+                     (parse-line pls "'file 1'")
+                     (parse-line pls "'../Sub Dir':")
+                     (parse-line pls "file2")
+                     (parse-line pls "A")
+                     (parse-line pls "file3")
+                     (parse-line pls "'../Sub Dir/A':")
+                     (parse-line pls "'file 4'")
+                     (<parsed-lines>-detected-format pls)))))
 
 (5am:test extract-ls-fname--test1
           (5am:is (equal
