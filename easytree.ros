@@ -1633,6 +1633,67 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                    '(fname . "..")
                    (extract-ls-fname ".."))))
 
+(5am:test split-path--test1
+          (5am:is (equal
+                   '("" "a" "b" "")
+                   (split-path "/a/b/"))))
+
+(5am:test split-path--test2
+          (5am:is (equal
+                   '("" "a" "b")
+                   (split-path "/a/b/" :strip-end t))))
+
+(5am:test split-path--test3
+          (5am:is (equal
+                   '("")
+                   (split-path ""))))
+
+(5am:test split-path--test4
+          (5am:is (equal
+                   '("") ;; TODO mb nil ?
+                   (split-path "" :strip-end t))))
+
+(5am:test subpath-p--test1
+          (5am:is (equal
+                   nil
+                   (subpath-p nil "a/b"))))
+
+(5am:test subpath-p--test2
+          (5am:is (equal
+                   nil
+                   (subpath-p "a/b" nil))))
+
+(5am:test subpath-p--test3
+          (5am:is (equal
+                   t
+                   (subpath-p "a/b" "a/b/c"))))
+
+(5am:test subpath-p--test4
+          (5am:is (equal
+                   nil
+                   (subpath-p "a" "abc"))))
+
+(5am:test subpath-p--test5
+          (5am:is (equal
+                   nil
+                   (subpath-p "a" "/a/b"))))
+
+(5am:test subpath-p--test6
+          (5am:is (equal
+                   nil
+                   (subpath-p "/a" "a/b"))))
+
+(5am:test subpath-p--test7
+          (5am:is (equal
+                   t
+                   (subpath-p "a/b/" "a/b/c"))))
+
+(5am:test subpath-p--test8
+          (5am:is (equal
+                   t
+                   (subpath-p "a/b/c" "a/b/c"))))
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun cli-tests-handler (cmd)
