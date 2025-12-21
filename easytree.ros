@@ -849,6 +849,33 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
       (setf (<parsed-lines>-detected-format PARSED-LINES) (caar active-formats)))
     active-format-parsed-lines))
 
+(declaim (ftype (function (<parsed-lines> &key (:HINT-FORMAT (or null <format>))) (or null list)) get-detected-parsed-fnames))
+(defun get-detected-parsed-fnames (PARSED-LINES &key (HINT-FORMAT nil))
+  "Returns list of <parsed-line> items when the format was detected after series of calls
+of `parse-line`. If there are multiple most popular formats (detection is not clean) then
+`hint-format` (it is a <format>) can help to prefer one of the same popular detected formats"
+  (let* ((most-parsed (get-most-parsed-lines PARSED-LINES))
+         (most-parsed-num (length most-parsed)))
+    (if (and (> 1 most-parsed-num) HINT-FORMAT)
+        (car (remove-if-not (lambda (fmt-and-lines) (eql fmt HINT-FORMAT)) most-parsed))
+        ;; Covers all other cases including empty most-parsed:
+        (car most-parsed))))
+
+(defun remount-fname (NEW-ROOT FNAME)
+  "Changes the directory of FNAME"
+  (concatenate 'string (string-right-trim "/" NEW-ROOT) "/" (string-left-trim "./" FNAME)))
+
+(defun mkfnames (PARSED-LINES)
+  "Makes directories and files from parsed lines"
+  ;; TODO
+  )
+
+(defun mkfnames-script (PARSED-LINES)
+  "Prepares a shell script able to make all directories and files from parsed lines"
+  ;; TODO
+  )
+
+
 ;; XXX "Permission denied" containing lines must be ignored!
 ;; XXX Also "cannot open directory"
 ;; Also tree can print attributes of files
