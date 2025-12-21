@@ -236,7 +236,10 @@ signle quotes). In general, shell paths look:
   ;; is an integer, we cannot know how many dirs we exited: one 30->12, two 30->20->12, ...:
   (indents nil :type (or null list))
   ;; Stack of file/dir names in a tree directory representation:
-  (fnames nil :type (or null list)))
+  (fnames nil :type (or null list))
+  ;; the last (previous) file/dir needed to detect :find when it could be treated as :tree
+  ;; ("pure" bcs it is as it was read, prefix was not added - to be abs./full path):
+  (last-pure-fname nil :type (or null string)))
 
 (defstruct <ls1r-state>
   ;; Stack of current directories
@@ -419,6 +422,35 @@ It can be used together with (pop-until ...)
       (reduce (lambda (e1 e2) (concatenate 'string e1 sep e2))
               (if part (append parts (list part)) parts))))
 
+(defun split-path (path &key (strip-end nil) (parts-num nil parts-num-supplied))
+  "Split a POSIX-style path into components, ignoring empty parts. It can set (in car)
+the number of parts in parts-num cons-cell if it was supplied"
+  (let* ((parts
+           (loop :with start := 0
+                 :for i :from 0 :to (length path)
+                 :when (or (= i (length path))
+                           (char= (aref path i) #\/))
+                   :collect (subseq path start i)
+                   :and :do (setf start (1+ i))))
+         (end (when strip-end
+                (loop :with max-i := (1- (length parts))
+                      :for i :downfrom max-i :to 0
+                      :while (string= "" (nth i parts))
+                      :finally (when (and (>= i 0) (<= i max-i)) (return (1+ i)))))))
+    ;; (format t ">>> pies: ~S end: ~A~%" parts end)
+    (when parts-num-supplied (setf (car parts-num) (length parts)))
+    (if end (subseq parts 0 end) parts)))
+
+(defun subpath-p (parent child &key (equal-too t))
+  "Return true if CHILD is inside PARENT (POSIX-style, purely textual)."
+  (let* ((p (split-path parent :strip-end t))
+         (c (split-path child :strip-end t))
+         (cmp-fun (if equal-too #'<= #'<)))
+    (when (and parent child)
+      (and (funcall cmp-fun (length p) (length c))
+           (equal p (subseq c 0 (length p)))))))
+
+
 ;; This functions can produce duplicates of file entries (bcs input can contain them in a way,
 ;; when it is not easy to remove duplicates on the phase of parsing). When they will be used
 ;; to reproduce directories/files - it should be handled (if it exists, not to make it):
@@ -462,7 +494,10 @@ It can be used together with (pop-until ...)
   "Detects that the line looks as a line from `tree`-like output. Returns
   NIL (not `tree`-like line) or <parsed-line> modifying PARSED-LINES"
   (let* ((marked-up-str (markup-line-as-tree STR))
+         ;; fname without path-prefix:
+         (pure-fname nil)
          (fname (cdr (assoc 'fname marked-up-str)))
+         (pure-fname fname)
          (fname-start (cdr (assoc 'fname-start marked-up-str)))
          (fname-stop (cdr (assoc 'fname-stop marked-up-str)))
          (parsed-line nil))
@@ -470,8 +505,8 @@ It can be used together with (pop-until ...)
       (symbol-macrolet ;; XXX "let" working as #define (macro-substitution), so save setf-ability
           ((state-indents (<tree-state>-indents (<parsed-lines>-tree-state PARSED-LINES)))
            (state-fnames (<tree-state>-fnames (<parsed-lines>-tree-state PARSED-LINES)))
-           (last-state-indent (or (car state-indents) 0)))
-        ;; TODO maybe to add to as-tree list ? Not in parse-line?
+           (last-state-indent (or (car state-indents) 0))
+           (last-state-pure-fname (<tree-state>-last-pure-fname (<parsed-lines>-tree-state PARSED-LINES))))
         (setf
          parsed-line
          (progn
@@ -481,6 +516,9 @@ It can be used together with (pop-until ...)
                     (char= #\/ (ch-at STR fname-stop)))
                (setf fsobj :dir)
                (setf fsobj :file))
+           (dbg (format nil "!!!!!! last-state-pure-fname: ~A  fname: ~A  fname-start: ~A  last-state-indent: ~A  SUBPATH-P: ~A~%"
+                        last-state-pure-fname fname fname-start last-state-indent
+                        (subpath-p last-state-pure-fname fname :equal-too nil)))
            (cond
              ((< fname-start last-state-indent)
               ;; depth decreased, so I have to pop items from the tree-state:
@@ -509,7 +547,15 @@ It can be used together with (pop-until ...)
               ;; (dbg (format t "2: fname: ~A state-fnames: ~X~%" fname state-fnames))
               (setf fname (path-parts-to-str (reverse state-fnames))) ;; fname is a/b/c now
               (make-<parsed-line> :format :tree :fname fname :fsobj fsobj))
-             ((= fname-start last-state-indent)
+             ((and (= fname-start last-state-indent)
+                   ;; To prevent mismatching of :FIND format we check that we have not
+                   ;; fname-s that start from the same indentation as the previous line
+                   ;; but being prefixed with the prev. fname (pure-fname - without
+                   ;; prepending fname with the contextual dir), ie, we reject fnames:
+                   ;;   ./a/b     <-- last-state-pure-fname
+                   ;;   ./a/b/c   <-- reject this pure-fname
+                   ;; bcs :TREE expects bigger indent if we "enter" into path deeper:
+                   (not (subpath-p last-state-pure-fname fname :equal-too nil)))
               (if state-fnames
                   (setf (car state-fnames) fname)
                   (setf state-fnames (list fname)))
@@ -522,6 +568,7 @@ It can be used together with (pop-until ...)
           (add-to-parsed-lines PARSED-LINES :tree parsed-line)
           ;; (dbg (format t "!!!!!!!! after add ~X~%" PARSED-LINES))
           (incf (<parsed-lines>-tree-hits PARSED-LINES))
+          (setf last-state-pure-fname pure-fname)
           parsed-line)))))
 
 (defun parse-line-as-find (PARSED-LINES STR)
@@ -649,7 +696,7 @@ a 10-character string like this, nil is returned"
                   (cdr fname-extraction)))
          (fail-msg (when (eq 'fail (car fname-extraction)) (cdr fname-extraction))))
     (when (and (>= last-i 0) (not fmode))
-      (dbg (format nil "~%!!!!! LS1R got it !!!!! STR: ~A fmode: ~A~%" STR fmode))
+      ;; (dbg (format nil "~%!!!!! LS1R got it !!!!! STR: ~A fmode: ~A~%" STR fmode))
       (symbol-macrolet
           ((state-dir (<ls1r-state>-dir (<parsed-lines>-ls1r-state PARSED-LINES)))
            (state-fname-hashes (<ls1r-state>-fname-hashes (<parsed-lines>-ls1r-state PARSED-LINES))))
@@ -728,7 +775,7 @@ a 10-character string like this, nil is returned"
          (fail-msg (when (eq 'fail (car fname-extraction)) (cdr fname-extraction))))
     (cond
       ((and str-is-not-empty (not str-is-total-hint))
-       (dbg (format nil "~%!!!!! LS1RL got it !!!!! STR: ~A fmode: ~A~%" STR fmode))
+       ;; (dbg (format nil "~%!!!!! LS1RL got it !!!!! STR: ~A fmode: ~A~%" STR fmode))
        (symbol-macrolet
            ((state-dir (<ls1rl-state>-dir (<parsed-lines>-ls1rl-state PARSED-LINES)))
             (state-fname-hashes (<ls1rl-state>-fname-hashes (<parsed-lines>-ls1rl-state PARSED-LINES))))
@@ -791,12 +838,12 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
              (remove nil
                      (mapcar (lambda (parse-func) (funcall parse-func PARSED-LINES STR))
                              parse-funcs)))))
+    ;; (dbg (format nil "~%!!!!!!!!!!!!!!! STR:'~A'~%  active-formats: ~A~%" STR active-formats))
     (when (and (not active-format-parsed-lines) (<parsed-lines>-verbose PARSED-LINES))
       ;; report errors for verbose mode:
       (dolist (fmt +formats+)
         (let ((fmt-fail-msg (get-parsed-lines-fail-msg PARSED-LINES fmt)))
           (when fmt-fail-msg (format *error-output* "*** ERROR [~A]: ~A~%" fmt fmt-fail-msg))))) ;; TODO more errors
-    ;; (dbg (format nil "!!!!!!!!!!!!!!! STR:'~A'~%  active-formats: ~A~%" STR active-formats))
     (when (= 1 (length active-formats))
       ;; If there is only 1 active format, then set it as the detected one:
       (setf (<parsed-lines>-detected-format PARSED-LINES) (caar active-formats)))
@@ -1215,7 +1262,8 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                     :dir-from-final-slash t
                     :tree-hits 1
                     :as-tree (list (make-<parsed-line> :format :tree :fname "file" :fsobj :dir))
-                    :tree-state (make-<tree-state> :indents (list 9) :fnames (list "file")))
+                    :tree-state (make-<tree-state> :indents (list 9) :fnames (list "file")
+                                                   :last-pure-fname "file"))
                    (let ((pls (make-<parsed-lines>)))
                      (parse-line-as-tree pls "   +---- file/  ")
                      pls))))
@@ -1228,7 +1276,8 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                     :tree-hits 1
                     :as-tree (list (make-<parsed-line> :format :tree :fname "etc" :fsobj :dir)
                                    (make-<parsed-line> :format :tree :fname "etc/file" :fsobj :file))
-                    :tree-state (make-<tree-state> :indents '(9 0) :fnames '("file" "etc")))
+                    :tree-state (make-<tree-state> :indents '(9 0) :fnames '("file" "etc")
+                                                   :last-pure-fname "file"))
                    (let ((pls
                            (make-<parsed-lines>
                             :dir-from-final-slash t
@@ -1249,7 +1298,8 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                                    (make-<parsed-line> :format :tree :fname "etc/dir/file-2" :fsobj :file)
                                    (make-<parsed-line> :format :tree :fname "etc/file-3" :fsobj :file)
                                    (make-<parsed-line> :format :tree :fname "tmp" :fsobj :dir))
-                    :tree-state (make-<tree-state> :indents nil :fnames '("tmp")))
+                    :tree-state (make-<tree-state> :indents nil :fnames '("tmp")
+                                                   :last-pure-fname "tmp"))
                    (let ((pls (make-<parsed-lines>)))
                      (parse-line-as-tree pls "etc")
                      (parse-line-as-tree pls "+---dir/")
@@ -1436,9 +1486,6 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      (parse-line pls "file3")
                      (parse-line pls "'../Sub Dir/A':")
                      (parse-line pls "'file 4'")
-                     ;; (dbg (format t "!!!!!!!!!!!! tree-hits: ~A find-hits: ~A ls1r-hits: ~A ls1rl-hits: ~A~%"
-                     ;;              (<parsed-lines>-tree-hits pls) (<parsed-lines>-find-hits pls)
-                     ;;              (<parsed-lines>-ls1r-hits pls) (<parsed-lines>-ls1rl-hits pls)))
                      (<parsed-lines>-detected-format pls)))))
 
 (5am:test parse-line--test2
@@ -1465,6 +1512,35 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      (parse-line pls "'../Sub Dir/C':")
                      (parse-line pls "total 5")
                      (parse-line pls "")
+                     (<parsed-lines>-detected-format pls)))))
+
+(5am:test parse-line--test3
+          (5am:is (eql
+                   :tree
+                   (let ((pls (make-<parsed-lines>)))
+                     (parse-line pls "etc")
+                     (parse-line pls "+---dir/")
+                     (parse-line pls "     +----file-1")
+                     (parse-line pls "     +----file-2")
+                     (parse-line pls "+---file-3")
+                     (parse-line pls "tmp/")
+                     (<parsed-lines>-detected-format pls)))))
+
+(5am:test parse-line--test4
+          (5am:is (eql
+                   :find
+                   (let (;;(*dbg-cond* t)
+                         (pls (make-<parsed-lines>)))
+                     (parse-line pls "./dir1")
+                     (parse-line pls "'./dir1/dir 11'")
+                     (parse-line pls "'./dir1/dir 11/file11'")
+                     (parse-line pls "'./dir1/dir 11/file12'")
+                     (parse-line pls "'./dir2/dir 21'")
+                     (parse-line pls "'./dir2/dir 21/file21'")
+                     (parse-line pls "./dir3")
+                     ;; (dbg (format t "4!!!!!!!!!!!! tree-hits: ~A find-hits: ~A ls1r-hits: ~A ls1rl-hits: ~A~%"
+                     ;;              (<parsed-lines>-tree-hits pls) (<parsed-lines>-find-hits pls)
+                     ;;              (<parsed-lines>-ls1r-hits pls) (<parsed-lines>-ls1rl-hits pls)))
                      (<parsed-lines>-detected-format pls)))))
 
 (5am:test extract-ls-fname--test1
