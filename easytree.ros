@@ -258,6 +258,11 @@ signle quotes). In general, shell paths look:
   (as-find nil :type (or null list))
   (as-ls1r nil :type (or null list))
   (as-ls1rl nil :type (or null list))
+  (tree-hits 0 :type integer)
+  (find-hits 0 :type integer)
+  (ls1r-hits 0 :type integer)
+  (ls1rl-hits 0 :type integer)
+  ;; states are needed to parse lines correctly, without them it is impossible:
   (tree-state (make-<tree-state>) :type <tree-state>)
   (ls1r-state (make-<ls1r-state>) :type <ls1r-state>)
   (ls1rl-state (make-<ls1rl-state>) :type <ls1rl-state>))
@@ -277,6 +282,14 @@ signle quotes). In general, shell paths look:
     (:find (<parsed-lines>-as-find PARSED-LINES))
     (:ls1r (<parsed-lines>-as-ls1r PARSED-LINES))
     (:ls1rl (<parsed-lines>-as-ls1rl PARSED-LINES))))
+
+(declaim (ftype (function (<parsed-lines> <format>) integer) get-parsed-lines-hits))
+(defun get-parsed-lines-hits (PARSED-LINES FORMAT)
+  (ecase FORMAT
+    (:tree (<parsed-lines>-tree-hits PARSED-LINES))
+    (:find (<parsed-lines>-find-hits PARSED-LINES))
+    (:ls1r (<parsed-lines>-ls1r-hits PARSED-LINES))
+    (:ls1rl (<parsed-lines>-ls1rl-hits PARSED-LINES))))
 
 (declaim (ftype (function (<parsed-lines> <format>) (or null string)) get-parsed-lines-fail-msg))
 (defun get-parsed-lines-fail-msg (PARSED-LINES FORMAT)
@@ -310,11 +323,30 @@ CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12)))
 (declaim (ftype (function (<parsed-lines>) list) get-most-parsed-lines))
 (defun get-most-parsed-lines (PARSED-LINES)
   "Returns a list of the longest lists of accumulated <parsed-line> items
-in a form (<format> . lines-list)"
-  (get-cons-with-longest-list
-   (mapcar (lambda (fmt)
-             (cons fmt (get-parsed-lines PARSED-LINES fmt)))
-           +formats+)))
+in a form (<format> . lines-list) TODO"  ;; TODO is the return type the same as before?
+  (let* ((fmts-with-parsed-lines
+           (loop :for fmt :in +formats+
+                 :collect (list (get-parsed-lines-hits PARSED-LINES fmt)
+                                fmt
+                                (get-parsed-lines PARSED-LINES fmt))))
+         (accumulated (reduce (lambda (acc x)
+                                (let ((k (car x)))
+                                  (cond ((null acc)
+                                         (list x))
+                                        ((> k (car (first acc)))
+                                         (list x))
+                                        ((= k (car (first acc)))
+                                         (cons x acc))
+                                        (t acc))))
+                              fmts-with-parsed-lines
+                              :initial-value nil
+                              :from-end nil))
+         (res (mapcar #'cdr accumulated)))
+    res))
+  ;; (get-cons-with-longest-list
+   ;; (mapcar (lambda (fmt)
+   ;;           (cons fmt (get-parsed-lines PARSED-LINES fmt)))
+   ;;         +formats+)))
 
 (declaim (ftype (function (<parsed-lines> <format> list) list) set-parsed-lines))
 (defun set-parsed-lines (PARSED-LINES FORMAT NEW-VALUE)
@@ -489,6 +521,7 @@ It can be used together with (pop-until ...)
           ;; (dbg (format nil "!!!!!!!! before to add ~S (parsed-line: ~S)~%" PARSED-LINES parsed-line))
           (add-to-parsed-lines PARSED-LINES :tree parsed-line)
           ;; (dbg (format t "!!!!!!!! after add ~X~%" PARSED-LINES))
+          (incf (<parsed-lines>-tree-hits PARSED-LINES))
           parsed-line)))))
 
 (defun parse-line-as-find (PARSED-LINES STR)
@@ -517,6 +550,7 @@ It can be used together with (pop-until ...)
                                    (lambda (last-parsed-line)
                                      (setf (<parsed-line>-fsobj last-parsed-line) :dir)
                                      last-parsed-line)))
+        (incf (<parsed-lines>-find-hits PARSED-LINES))
         (add-to-parsed-lines PARSED-LINES :find
                              (make-<parsed-line> :format :find :fname fname :fmode 0 :fsobj :file))))))
 
@@ -603,10 +637,19 @@ a 10-character string like this, nil is returned"
          (fname-extraction (extract-ls-fname (if str-is-dir-hint
                                                  (subseq STR 0 last-i)
                                                  STR)))
-         (fname (when (eq 'fname (car fname-extraction)) (cdr fname-extraction)))
+         (fmode (when (not str-is-dir-hint) (parse-fmode-str STR *fmode-bits*)))
+         (fname (when (and (eq 'fname (car fname-extraction))
+                           ;; TODO good, but leads to 2 fails: it recognize fname=1 when STR=total 1.
+                           ;; TODO fname=a b is also shorter then STR='a b', so criteria must be smarter.
+                           ;; TODO Also ls1rl must count 'total X' as its line, but it cannot add it to parsed lines
+                           ;; TODO so maybe to add some counter to <parsed-lines> - not only lines number must be taken
+                           ;; TODO into account?
+                           ;; (= (length STR) (length (cdr fname-extraction)))
+                           )
+                  (cdr fname-extraction)))
          (fail-msg (when (eq 'fail (car fname-extraction)) (cdr fname-extraction))))
-    (when (and (>= last-i 0)
-               (eq nil (parse-fmode-str STR *fmode-bits*)))
+    (when (and (>= last-i 0) (not fmode))
+      (dbg (format nil "~%!!!!! LS1R got it !!!!! STR: ~A fmode: ~A~%" STR fmode))
       (symbol-macrolet
           ((state-dir (<ls1r-state>-dir (<parsed-lines>-ls1r-state PARSED-LINES)))
            (state-fname-hashes (<ls1r-state>-fname-hashes (<parsed-lines>-ls1r-state PARSED-LINES))))
@@ -626,6 +669,7 @@ a 10-character string like this, nil is returned"
                  (setf (gethash fname state-fname-hashes)
                        (hash-table-count state-fname-hashes))))
            (setf state-dir fname)
+           (incf (<parsed-lines>-ls1r-hits PARSED-LINES))
            (add-to-parsed-lines PARSED-LINES :ls1r
                                 (make-<parsed-line> :format :ls1r :fname fname :fmode 0 :fsobj fsobj)))
           (fname
@@ -634,6 +678,7 @@ a 10-character string like this, nil is returned"
            (setf (gethash fname state-fname-hashes)
                  (hash-table-count state-fname-hashes))
            (setf fsobj :file)
+           (incf (<parsed-lines>-ls1r-hits PARSED-LINES))
            (add-to-parsed-lines PARSED-LINES :ls1r
                                 (make-<parsed-line> :format :ls1r :fname fname :fmode 0 :fsobj fsobj)))
           ((<parsed-lines>-verbose PARSED-LINES)
@@ -681,42 +726,48 @@ a 10-character string like this, nil is returned"
          (fmode-int (or fmode 0))
          (fmode-dir (/= 0 (logand #x4000 fmode-int)))
          (fail-msg (when (eq 'fail (car fname-extraction)) (cdr fname-extraction))))
-    (when (and str-is-not-empty (not str-is-total-hint))
-      (symbol-macrolet
-          ((state-dir (<ls1rl-state>-dir (<parsed-lines>-ls1rl-state PARSED-LINES)))
-           (state-fname-hashes (<ls1rl-state>-fname-hashes (<parsed-lines>-ls1rl-state PARSED-LINES))))
-        (cond
-          ((and str-is-dir-hint fname)  ;; Hint of yet another directory ("xyz:")
-           (setf fsobj :dir)
-           (multiple-value-bind (fname-pos fname-exists) (gethash fname state-fname-hashes)
-             (if fname-exists
-                 ;; If such fname has known position, find its <parsed-line> and set its fsobj to :dir,
-                 ;; btw, if it exists, then it has corresponding item in parsed lines of its format,
-                 ;; so we don't check NIL==get-parsed-lines (they are not empty):
-                 (setf (<parsed-line>-fsobj
-                        (nth fname-pos
-                             (get-parsed-lines PARSED-LINES :ls1rl)))
-                       :dir)
-                 ;; else - remember fname's position:
-                 (setf (gethash fname state-fname-hashes)
-                       (hash-table-count state-fname-hashes))))
-           (setf state-dir fname)
-           (add-to-parsed-lines PARSED-LINES :ls1rl
-                                (make-<parsed-line> :format :ls1rl :fname fname :fmode fmode-int :fsobj fsobj)))
-          ((and fmode fname)
-           (setf fname (path-parts-to-str (list state-dir fname)))
-           ;; remember the position of fname:
-           (setf (gethash fname state-fname-hashes)
-                 (hash-table-count state-fname-hashes))
-           (if fmode-dir (setf fsobj :dir) (setf fsobj :file))
-           (add-to-parsed-lines PARSED-LINES :ls1rl
-                                (make-<parsed-line> :format :ls1rl :fname fname :fmode fmode-int :fsobj fsobj)))
-          ((<parsed-lines>-verbose PARSED-LINES)
-           (setf (<parsed-lines>-ls1rl-fail-msg PARSED-LINES)
-                 (format t "ERROR: cannot parse '~A': ~A~%" STR (or fail-msg "unknown error")))))
-        ;; (dbg (format nil "!!!!!!!!!!!!! STR: ~A  fname: ~A~%~A~%" STR fname
-        ;;              (maphash (lambda (k v) (format t "  ~A => ~A~%" k v)) state-fname-hashes)) nil :cond t)
-        ))))
+    (cond
+      ((and str-is-not-empty (not str-is-total-hint))
+       (dbg (format nil "~%!!!!! LS1RL got it !!!!! STR: ~A fmode: ~A~%" STR fmode))
+       (symbol-macrolet
+           ((state-dir (<ls1rl-state>-dir (<parsed-lines>-ls1rl-state PARSED-LINES)))
+            (state-fname-hashes (<ls1rl-state>-fname-hashes (<parsed-lines>-ls1rl-state PARSED-LINES))))
+         (cond
+           ((and str-is-dir-hint fname)  ;; Hint of yet another directory ("xyz:")
+            (setf fsobj :dir)
+            (multiple-value-bind (fname-pos fname-exists) (gethash fname state-fname-hashes)
+              (if fname-exists
+                  ;; If such fname has known position, find its <parsed-line> and set its fsobj to :dir,
+                  ;; btw, if it exists, then it has corresponding item in parsed lines of its format,
+                  ;; so we don't check NIL==get-parsed-lines (they are not empty):
+                  (setf (<parsed-line>-fsobj
+                         (nth fname-pos
+                              (get-parsed-lines PARSED-LINES :ls1rl)))
+                        :dir)
+                  ;; else - remember fname's position:
+                  (setf (gethash fname state-fname-hashes)
+                        (hash-table-count state-fname-hashes))))
+            (setf state-dir fname)
+            (incf (<parsed-lines>-ls1rl-hits PARSED-LINES))
+            (add-to-parsed-lines PARSED-LINES :ls1rl
+                                 (make-<parsed-line> :format :ls1rl :fname fname :fmode fmode-int :fsobj fsobj)))
+           ((and fmode fname)
+            (setf fname (path-parts-to-str (list state-dir fname)))
+            ;; remember the position of fname:
+            (setf (gethash fname state-fname-hashes)
+                  (hash-table-count state-fname-hashes))
+            (if fmode-dir (setf fsobj :dir) (setf fsobj :file))
+            (incf (<parsed-lines>-ls1rl-hits PARSED-LINES))
+            (add-to-parsed-lines PARSED-LINES :ls1rl
+                                 (make-<parsed-line> :format :ls1rl :fname fname :fmode fmode-int :fsobj fsobj)))
+           ((<parsed-lines>-verbose PARSED-LINES)
+            (setf (<parsed-lines>-ls1rl-fail-msg PARSED-LINES)
+                  (format t "ERROR: cannot parse '~A': ~A~%" STR (or fail-msg "unknown error")))))
+         ;; (dbg (format nil "!!!!!!!!!!!!! STR: ~A  fname: ~A~%~A~%" STR fname
+         ;;              (maphash (lambda (k v) (format t "  ~A => ~A~%" k v)) state-fname-hashes)) nil :cond t)
+         ))
+      (str-is-total-hint
+       (incf (<parsed-lines>-ls1rl-hits PARSED-LINES))))))
 
 
 (declaim (ftype (function (<format>) (function (<parsed-lines> string) (or null <parsed-line>))) get-parse-func))
@@ -744,8 +795,8 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
       ;; report errors for verbose mode:
       (dolist (fmt +formats+)
         (let ((fmt-fail-msg (get-parsed-lines-fail-msg PARSED-LINES fmt)))
-          (when fmt-fail-msg (format *error-output* "*** ERROR [~A]: ~A~%" fmt fmt-fail-msg)))))
-    (dbg (format nil "!!!!!!!!!!!!!!! ~A~%  active-formats: ~A~%" STR active-formats))
+          (when fmt-fail-msg (format *error-output* "*** ERROR [~A]: ~A~%" fmt fmt-fail-msg))))) ;; TODO more errors
+    ;; (dbg (format nil "!!!!!!!!!!!!!!! STR:'~A'~%  active-formats: ~A~%" STR active-formats))
     (when (= 1 (length active-formats))
       ;; If there is only 1 active format, then set it as the detected one:
       (setf (<parsed-lines>-detected-format PARSED-LINES) (caar active-formats)))
@@ -1162,6 +1213,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
           (5am:is (equalp
                    (make-<parsed-lines>
                     :dir-from-final-slash t
+                    :tree-hits 1
                     :as-tree (list (make-<parsed-line> :format :tree :fname "file" :fsobj :dir))
                     :tree-state (make-<tree-state> :indents (list 9) :fnames (list "file")))
                    (let ((pls (make-<parsed-lines>)))
@@ -1173,6 +1225,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
           (5am:is (equalp
                    (make-<parsed-lines>
                     :dir-from-final-slash t
+                    :tree-hits 1
                     :as-tree (list (make-<parsed-line> :format :tree :fname "etc" :fsobj :dir)
                                    (make-<parsed-line> :format :tree :fname "etc/file" :fsobj :file))
                     :tree-state (make-<tree-state> :indents '(9 0) :fnames '("file" "etc")))
@@ -1189,6 +1242,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
           (5am:is (equalp
                    (make-<parsed-lines>
                     :dir-from-final-slash t
+                    :tree-hits 6
                     :as-tree (list (make-<parsed-line> :format :tree :fname "etc" :fsobj :dir)
                                    (make-<parsed-line> :format :tree :fname "etc/dir" :fsobj :dir)
                                    (make-<parsed-line> :format :tree :fname "etc/dir/file-1" :fsobj :file)
@@ -1215,6 +1269,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
           (5am:is (equalp
                    (make-<parsed-lines>
                     :dir-from-final-slash t
+                    :find-hits 7
                     :as-find (list (make-<parsed-line> :format :find :fname "./dir1" :fsobj :dir)
                                    (make-<parsed-line> :format :find :fname "./dir1/dir 11" :fsobj :dir)
                                    (make-<parsed-line> :format :find :fname "./dir1/dir 11/file11" :fsobj :file)
@@ -1273,6 +1328,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
           (5am:is (equalp
                    (make-<parsed-lines>
                     :dir-from-final-slash t
+                    :ls1r-hits 8
                     :as-ls1r (list (make-<parsed-line> :format :ls1r :fname ".." :fsobj :dir)
                                    (make-<parsed-line> :format :ls1r :fname "../file 1" :fsobj :file)
                                    (make-<parsed-line> :format :ls1r :fname "../Sub Dir" :fsobj :dir)
@@ -1314,6 +1370,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
           (5am:is (equalp
                    (make-<parsed-lines>
                     :dir-from-final-slash t
+                    :ls1rl-hits 17
                     :as-ls1rl (list (make-<parsed-line> :format :ls1rl :fname ".." :fsobj :dir)
                                     (make-<parsed-line> :format :ls1rl :fname "../*" :fsobj :file :fmode 33188)
                                     (make-<parsed-line> :format :ls1rl :fname "../$" :fsobj :file :fmode 33188)
@@ -1379,12 +1436,15 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      (parse-line pls "file3")
                      (parse-line pls "'../Sub Dir/A':")
                      (parse-line pls "'file 4'")
+                     ;; (dbg (format t "!!!!!!!!!!!! tree-hits: ~A find-hits: ~A ls1r-hits: ~A ls1rl-hits: ~A~%"
+                     ;;              (<parsed-lines>-tree-hits pls) (<parsed-lines>-find-hits pls)
+                     ;;              (<parsed-lines>-ls1r-hits pls) (<parsed-lines>-ls1rl-hits pls)))
                      (<parsed-lines>-detected-format pls)))))
 
 (5am:test parse-line--test2
           (5am:is (eql
                    :ls1rl
-                   (let ((*dbg-cond* t)
+                   (let (;;(*dbg-cond* t)
                          (pls (make-<parsed-lines>)))
                      (parse-line pls "..:")
                      (parse-line pls "total 1")
