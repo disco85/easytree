@@ -865,6 +865,32 @@ of `parse-line`. If there are multiple most popular formats (detection is not cl
   "Changes the directory of FNAME"
   (concatenate 'string (string-right-trim "/" NEW-ROOT) "/" (string-left-trim "./" FNAME)))
 
+(defun replace-all-occurrences (IN-STR OLD NEW)
+  (let* ((in-len (length IN-STR))
+         (old-len (length OLD))
+         (jump-over-old (max 1 old-len))
+         done
+         res-str)
+    (labels ((repl (from out-str)
+               (let* ((old-pos (if (> from in-len)
+                                   nil
+                                   (search OLD IN-STR :start2 from)))
+                      (just-prev (and (= 0 old-len) (> from 0) (<= from in-len))))
+                 (cond
+                   (old-pos
+                    (setf done t)
+                    (if just-prev
+                        (write-string IN-STR out-str :start (1- from) :end from)
+                        (write-string IN-STR out-str :start from :end old-pos))
+                    (write-string NEW out-str)
+                    (repl (+ old-pos jump-over-old) out-str))
+                   ((< from in-len)
+                    (write-string IN-STR out-str :start from))))))
+      (setf res-str (with-output-to-string (res)
+                      (repl 0 res)))
+      (values res-str done))))
+
+
 (defun mkfnames (PARSED-LINES)
   "Makes directories and files from parsed lines"
   ;; TODO
@@ -1720,6 +1746,36 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                    t
                    (subpath-p "a/b/c" "a/b/c"))))
 
+(5am:test replace-all-occurrences--test1
+          (5am:is (equal
+                   '("XbcX" t)
+                   (multiple-value-list (replace-all-occurrences "abca" "a" "X")))))
+
+(5am:test replace-all-occurrences--test2
+          (5am:is (equal
+                   '("abc" NIL)
+                   (multiple-value-list (replace-all-occurrences "abc" "X" "Y")))))
+
+(5am:test replace-all-occurrences--test3
+          (5am:is (equal
+                   '("abc" NIL)
+                   (multiple-value-list (replace-all-occurrences "abc" "X" "Y")))))
+
+(5am:test replace-all-occurrences--test4
+          (5am:is (equal
+                   '("" NIL)
+                   (multiple-value-list (replace-all-occurrences "" "X" "Y")))))
+
+(5am:test replace-all-occurrences--test5
+          (5am:is (equal
+                   '("Y" t)
+                   (multiple-value-list (replace-all-occurrences "" "" "Y")))))
+
+(5am:test replace-all-occurrences--test6
+          (5am:is (equal
+                   '("YaYbYcY" t)
+                   (let ((*dbg-cond* t))
+                     (multiple-value-list (replace-all-occurrences "abc" "" "Y"))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
