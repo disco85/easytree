@@ -450,6 +450,10 @@ the number of parts in parts-num cons-cell if it was supplied"
       (and (funcall cmp-fun (length p) (length c))
            (equal p (subseq c 0 (length p)))))))
 
+(defun parent-path (path)
+  "Parent of some path (a -> . or a/b -> a)"
+  (let ((pos (position #\/ path :from-end t)))
+    (if pos (subseq path 0 pos) ".")))
 
 ;; This functions can produce duplicates of file entries (bcs input can contain them in a way,
 ;; when it is not easy to remove duplicates on the phase of parsing). When they will be used
@@ -896,23 +900,36 @@ of `parse-line`. If there are multiple most popular formats (detection is not cl
   ;; TODO
   )
 
+(declaim (ftype (function (<parsed-line>) list) mkfname-script))
 (defun mkfname-script (PARSED-LINE)
   (let*
-      ((fname (<parsed-line>-fname PARSED-LINE))
-       (quoted-fname
-         (when fname (format nil "'~A'"
-                             (replace-all-occurrences fname "'" "'\\''")))))
-       (when quoted-fname
-         (case (<parsed-line>-fsobj PARSED-LINE)
-           (:dir (format nil "[ -d ~A ] || mkdir -p ~A || true" quoted-fname quoted-fname))
-           (:file (format nil "[-f ~A ] || touch ~A || true" quoted-fname quoted-fname))))))
+      ((quote-path (lambda (f) (format nil "'~A'"
+                                       (replace-all-occurrences f "'" "'\\''"))))
+       (fname (<parsed-line>-fname PARSED-LINE))
+       (quoted-fname-parent (when fname (funcall quote-path (parent-path fname))))
+       (quoted-fname (when fname (funcall quote-path fname))))
+    (when quoted-fname
+      (case (<parsed-line>-fsobj PARSED-LINE)
+        (:dir (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
+                            quoted-fname
+                            quoted-fname)))
+        (:file (append (when quoted-fname-parent
+                         ;; ensure that the parent of a file is created:
+                         (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
+                                       quoted-fname-parent
+                                       quoted-fname-parent)))
+                       (list (format nil "[-f ~A ] || touch ~A || true"
+                                     quoted-fname
+                                     quoted-fname))))))))
 
 (defun mkfnames-script (PARSED-LINES)
   "Prepares a shell script able to make all directories and files from parsed lines"
   (let* ((fmt (<parsed-lines>-detected-format PARSED-LINES))
          (lines (when fmt (get-parsed-lines PARSED-LINES fmt)))
-         (commands (mapcar #'mkfname-script lines))
-         (script (format nil "~{~A~^~%~}" commands)))
+         (commands (mapcan #'mkfname-script lines))
+         ;; optimization: remove duplicated commands (mkdir-s):
+         (uniq-commands (remove-duplicates commands :test #'equalp :from-end t))
+         (script (format nil "~{~A~^~%~}" uniq-commands)))
     script))
 
 
