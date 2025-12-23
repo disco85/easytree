@@ -3,6 +3,7 @@
 #|
 exec ros -Q -- $0 "$@"
 |#
+
 (progn ;;init forms
   (ros:ensure-asdf)
   #+quicklisp(ql:quickload '(clingon cl-ppcre fiveam uiop) :silent t)
@@ -12,6 +13,7 @@ exec ros -Q -- $0 "$@"
   (:use :cl))
 (in-package :ros.script.easytree)
 
+;; (format t "!!!!!!!!!!!!!!!!!!!!!~A~%" (uiop:version))
 
 (defvar *dbg-cond* nil)
 (defun dbg (s &optional (x nil) &key (cond nil)) (when (or *dbg-cond* cond) (format t "~%*** TRACE[~A]: ~S~% ***~%" s x)) x)
@@ -457,11 +459,12 @@ the number of parts in parts-num cons-cell if it was supplied"
 
 ;; This functions can produce duplicates of file entries (bcs input can contain them in a way,
 ;; when it is not easy to remove duplicates on the phase of parsing). When they will be used
-;; to reproduce directories/files - it should be handled (if it exists, not to make it):
-(declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-tree))
-(declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-find))
-(declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-ls1r))
-(declaim (ftype (function (<parsed-lines> string) (or null <parsed-line>)) parse-line-as-ls1rl))
+;; to reproduce directories/files - it should be handled (if it exists, not to make it).
+;; Also they return different things on success. But NIL of failure.
+(declaim (ftype (function (<parsed-lines> string) (or null t)) parse-line-as-tree))
+(declaim (ftype (function (<parsed-lines> string) (or null t)) parse-line-as-find))
+(declaim (ftype (function (<parsed-lines> string) (or null t)) parse-line-as-ls1r))
+(declaim (ftype (function (<parsed-lines> string) (or null t)) parse-line-as-ls1rl))
 
 ;; TODO support /etc (currently I think / will not be collected as fname)
 (defun markup-line-as-tree (STR)
@@ -895,26 +898,6 @@ of `parse-line`. If there are multiple most popular formats (detection is not cl
       (values res-str done))))
 
 
-(defun mkfname (PARSED-LINE)
-  (let*
-      ((quote-path (lambda (f) (format nil "'~A'"
-                                       (replace-all-occurrences f "'" "'\\''"))))
-       (fname (<parsed-line>-fname PARSED-LINE))
-       (quoted-fname-parent (when fname (funcall quote-path (parent-path fname))))
-       (quoted-fname (when fname (funcall quote-path fname)))))
-  )
-
-;; (defmacro with-fname (PARSED-LINE-VARNAME QUOTED-FNAME-PARENT-VARNAME QUOTED-FNAME-VARNAME &key ON-DIR ON-FILE)
-;;   `(let*
-;;        ((quote-path (lambda (f) (format nil "'~A'"
-;;                                         (replace-all-occurrences f "'" "'\\''"))))
-;;         (fname (<parsed-line>-fname ,PARSED-LINE-VARNAME))
-;;         (,QUOTED-FNAME-PARENT-VARNAME (when fname (funcall quote-path (parent-path fname))))
-;;         (,QUOTED-FNAME-VARNAME (when fname (funcall quote-path fname))))
-;;      (when ,QUOTED-FNAME-VARNAME
-;;        (case (<parsed-line>-fsobj ,PARSED-LINE-VARNAME)
-;;          (:dir (progn ,@ON-DIR))
-;;          (:file (progn ,@ON-FILE))))))
 (defmacro with-fname (PARSED-LINE
                       QUOTED-FNAME-PARENT-VAR
                       QUOTED-FNAME-VAR
@@ -950,10 +933,22 @@ of `parse-line`. If there are multiple most popular formats (detection is not cl
            (:file
             (progn ,@(nreverse on-file))))))))
 
+(defun mkfname (PARSED-LINE)
+  (with-fname PARSED-LINE quoted-fname-parent quoted-fname
+    :on-dir (let ((quoted-fname1 (pathname quoted-fname)))
+              (unless (uiop:directory-exists-p quoted-fname1)
+                (ensure-directories-exist quoted-fname1)
+                #|(uiop:run-program `("chmod" "755" ,quoted-fname1))|#))
+    :on-file (let ((quoted-fname-parent1 (pathname quoted-fname-parent))
+                   (quoted-fname1 (pathname quoted-fname)))
+              (unless (uiop:directory-exists-p quoted-fname-parent1)
+                (ensure-directories-exist quoted-fname-parent1)
+                (touch-file quoted-fname1)
+                #|(uiop:run-program `("chmod" "755" ,quoted-fname1))|#)))) ;; TODO implement setting of fmode!
+
 (defun mkfnames (PARSED-LINES)
   "Makes directories and files from parsed lines"
-  ;; TODO
-  )
+  (dolist (parsed-line PARSED-LINES) (mkfname parsed-line)))
 
 (declaim (ftype (function (<parsed-line>) list) mkfname-script))
 (defun mkfname-script (PARSED-LINE)
@@ -961,14 +956,15 @@ of `parse-line`. If there are multiple most popular formats (detection is not cl
     :on-dir (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
                           quoted-fname
                           quoted-fname))
-    :on-file (append (when quoted-fname-parent
-                       ;; ensure that the parent of a file is created:
-                       (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
-                                     quoted-fname-parent
-                                     quoted-fname-parent)))
-                     (list (format nil "[-f ~A ] || touch ~A || true"
-                                   quoted-fname
-                                   quoted-fname)))))
+    :on-file (append
+              (when quoted-fname-parent
+                ;; ensure that the parent of a file is created:
+                (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
+                              quoted-fname-parent
+                              quoted-fname-parent)))
+              (list (format nil "[-f ~A ] || touch ~A || true"
+                            quoted-fname
+                            quoted-fname)))))
   ;; (let*
   ;;     ((quote-path (lambda (f) (format nil "'~A'"
   ;;                                      (replace-all-occurrences f "'" "'\\''"))))
