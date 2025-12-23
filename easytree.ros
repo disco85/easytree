@@ -895,6 +895,61 @@ of `parse-line`. If there are multiple most popular formats (detection is not cl
       (values res-str done))))
 
 
+(defun mkfname (PARSED-LINE)
+  (let*
+      ((quote-path (lambda (f) (format nil "'~A'"
+                                       (replace-all-occurrences f "'" "'\\''"))))
+       (fname (<parsed-line>-fname PARSED-LINE))
+       (quoted-fname-parent (when fname (funcall quote-path (parent-path fname))))
+       (quoted-fname (when fname (funcall quote-path fname)))))
+  )
+
+;; (defmacro with-fname (PARSED-LINE-VARNAME QUOTED-FNAME-PARENT-VARNAME QUOTED-FNAME-VARNAME &key ON-DIR ON-FILE)
+;;   `(let*
+;;        ((quote-path (lambda (f) (format nil "'~A'"
+;;                                         (replace-all-occurrences f "'" "'\\''"))))
+;;         (fname (<parsed-line>-fname ,PARSED-LINE-VARNAME))
+;;         (,QUOTED-FNAME-PARENT-VARNAME (when fname (funcall quote-path (parent-path fname))))
+;;         (,QUOTED-FNAME-VARNAME (when fname (funcall quote-path fname))))
+;;      (when ,QUOTED-FNAME-VARNAME
+;;        (case (<parsed-line>-fsobj ,PARSED-LINE-VARNAME)
+;;          (:dir (progn ,@ON-DIR))
+;;          (:file (progn ,@ON-FILE))))))
+(defmacro with-fname (PARSED-LINE
+                      QUOTED-FNAME-PARENT-VAR
+                      QUOTED-FNAME-VAR
+                      &body body)
+  (let ((on-dir nil)
+        (on-file nil)
+        (current nil)
+        (g-fname (gensym "FNAME-"))
+        (g-quote-path (gensym "QUOTE-PATH-")))
+    (dolist (form body)
+      (cond
+        ((eql form :on-dir)     (setf current 'on-dir))
+        ((eql form :on-file)    (setf current 'on-file))
+        ((eql current 'on-dir)  (push form on-dir))
+        ((eql current 'on-file) (push form on-file))
+        (t (error "WITH-FNAME: unexpected form ~S" form))))
+    (unless on-dir (error "WITH-FNAME: missing :on-dir body"))
+    (unless on-file (error "WITH-FNAME: missing :on-file body"))
+    `(let* ((,g-quote-path
+              (lambda (f)
+                (format nil "'~A'" (replace-all-occurrences f "'" "'\\''"))))
+            (,g-fname (<parsed-line>-fname ,PARSED-LINE))
+            (,QUOTED-FNAME-PARENT-VAR
+              (when ,g-fname
+                (funcall ,g-quote-path (parent-path ,g-fname))))
+            (,QUOTED-FNAME-VAR
+              (when ,g-fname
+                (funcall ,g-quote-path ,g-fname))))
+       (when ,QUOTED-FNAME-VAR
+         (case (<parsed-line>-fsobj ,PARSED-LINE)
+           (:dir
+            (progn ,@(nreverse on-dir)))
+           (:file
+            (progn ,@(nreverse on-file))))))))
+
 (defun mkfnames (PARSED-LINES)
   "Makes directories and files from parsed lines"
   ;; TODO
@@ -902,25 +957,38 @@ of `parse-line`. If there are multiple most popular formats (detection is not cl
 
 (declaim (ftype (function (<parsed-line>) list) mkfname-script))
 (defun mkfname-script (PARSED-LINE)
-  (let*
-      ((quote-path (lambda (f) (format nil "'~A'"
-                                       (replace-all-occurrences f "'" "'\\''"))))
-       (fname (<parsed-line>-fname PARSED-LINE))
-       (quoted-fname-parent (when fname (funcall quote-path (parent-path fname))))
-       (quoted-fname (when fname (funcall quote-path fname))))
-    (when quoted-fname
-      (case (<parsed-line>-fsobj PARSED-LINE)
-        (:dir (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
-                            quoted-fname
-                            quoted-fname)))
-        (:file (append (when quoted-fname-parent
-                         ;; ensure that the parent of a file is created:
-                         (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
-                                       quoted-fname-parent
-                                       quoted-fname-parent)))
-                       (list (format nil "[-f ~A ] || touch ~A || true"
-                                     quoted-fname
-                                     quoted-fname))))))))
+  (with-fname PARSED-LINE quoted-fname-parent quoted-fname
+    :on-dir (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
+                          quoted-fname
+                          quoted-fname))
+    :on-file (append (when quoted-fname-parent
+                       ;; ensure that the parent of a file is created:
+                       (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
+                                     quoted-fname-parent
+                                     quoted-fname-parent)))
+                     (list (format nil "[-f ~A ] || touch ~A || true"
+                                   quoted-fname
+                                   quoted-fname)))))
+  ;; (let*
+  ;;     ((quote-path (lambda (f) (format nil "'~A'"
+  ;;                                      (replace-all-occurrences f "'" "'\\''"))))
+  ;;      (fname (<parsed-line>-fname PARSED-LINE))
+  ;;      (quoted-fname-parent (when fname (funcall quote-path (parent-path fname))))
+  ;;      (quoted-fname (when fname (funcall quote-path fname))))
+  ;;   (when quoted-fname
+  ;;     (case (<parsed-line>-fsobj PARSED-LINE)
+  ;;       (:dir (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
+  ;;                           quoted-fname
+  ;;                           quoted-fname)))
+  ;;       (:file (append (when quoted-fname-parent
+  ;;                        ;; ensure that the parent of a file is created:
+  ;;                        (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
+  ;;                                      quoted-fname-parent
+  ;;                                      quoted-fname-parent)))
+  ;;                      (list (format nil "[-f ~A ] || touch ~A || true"
+  ;;                                    quoted-fname
+  ;;                                    quoted-fname)))))))
+
 
 (defun mkfnames-script (PARSED-LINES)
   "Prepares a shell script able to make all directories and files from parsed lines"
