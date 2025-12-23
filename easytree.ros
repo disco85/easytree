@@ -1614,14 +1614,14 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
           (5am:is (equal
                    "[ -d 'etc' ] || mkdir -p 'etc' || true
 [ -d 'etc/dir' ] || mkdir -p 'etc/dir' || true
-[-f 'etc/dir/file-1' ] || touch 'etc/dir/file-1' || true
+[-f 'etc/dir/file '\\'' 1' ] || touch 'etc/dir/file '\\'' 1' || true
 [-f 'etc/dir/file-2' ] || touch 'etc/dir/file-2' || true
 [-f 'etc/file-3' ] || touch 'etc/file-3' || true
 [ -d 'tmp' ] || mkdir -p 'tmp' || true"
                    (let ((pls (make-<parsed-lines>)))
                      (parse-line pls "etc")
                      (parse-line pls "+---dir/")
-                     (parse-line pls "     +----file-1")
+                     (parse-line pls "     +----file ' 1")
                      (parse-line pls "     +----file-2")
                      (parse-line pls "+---file-3")
                      (parse-line pls "tmp/")
