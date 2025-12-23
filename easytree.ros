@@ -896,10 +896,24 @@ of `parse-line`. If there are multiple most popular formats (detection is not cl
   ;; TODO
   )
 
+(defun mkfname-script (PARSED-LINE)
+  (let*
+      ((fname (<parsed-line>-fname PARSED-LINE))
+       (quoted-fname
+         (when fname (format nil "'~A'"
+                             (replace-all-occurrences fname "'" "'\\''")))))
+       (when quoted-fname
+         (case (<parsed-line>-fsobj PARSED-LINE)
+           (:dir (format nil "[ -d ~A ] || mkdir -p ~A || true" quoted-fname quoted-fname))
+           (:file (format nil "[-f ~A ] || touch ~A || true" quoted-fname quoted-fname))))))
+
 (defun mkfnames-script (PARSED-LINES)
   "Prepares a shell script able to make all directories and files from parsed lines"
-  ;; TODO
-  )
+  (let* ((fmt (<parsed-lines>-detected-format PARSED-LINES))
+         (lines (when fmt (get-parsed-lines PARSED-LINES fmt)))
+         (commands (mapcar #'mkfname-script lines))
+         (script (format nil "~{~A~^~%~}" commands)))
+    script))
 
 
 ;; XXX "Permission denied" containing lines must be ignored!
@@ -1595,6 +1609,23 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      ;;              (<parsed-lines>-tree-hits pls) (<parsed-lines>-find-hits pls)
                      ;;              (<parsed-lines>-ls1r-hits pls) (<parsed-lines>-ls1rl-hits pls)))
                      (<parsed-lines>-detected-format pls)))))
+
+(5am:test mkfnames-script--test1
+          (5am:is (equal
+                   "[ -d 'etc' ] || mkdir -p 'etc' || true
+[ -d 'etc/dir' ] || mkdir -p 'etc/dir' || true
+[-f 'etc/dir/file-1' ] || touch 'etc/dir/file-1' || true
+[-f 'etc/dir/file-2' ] || touch 'etc/dir/file-2' || true
+[-f 'etc/file-3' ] || touch 'etc/file-3' || true
+[ -d 'tmp' ] || mkdir -p 'tmp' || true"
+                   (let ((pls (make-<parsed-lines>)))
+                     (parse-line pls "etc")
+                     (parse-line pls "+---dir/")
+                     (parse-line pls "     +----file-1")
+                     (parse-line pls "     +----file-2")
+                     (parse-line pls "+---file-3")
+                     (parse-line pls "tmp/")
+                     (mkfnames-script pls)))))
 
 (5am:test extract-ls-fname--test1
           (5am:is (equal
