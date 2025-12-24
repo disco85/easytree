@@ -522,7 +522,8 @@ the number of parts in parts-num cons-cell if it was supplied"
 
 (defun parse-line-as-tree (PARSED-LINES STR)
   "Detects that the line looks as a line from `tree`-like output. Returns
-  NIL (not `tree`-like line) or <parsed-line> modifying PARSED-LINES"
+NIL (not `tree`-like line) or <parsed-line> modifying PARSED-LINES.
+tree command MUST BE RAN WITH --noreport option!"
   (let* ((marked-up-str (markup-line-as-tree STR))
          (fname (cdr (assoc 'fname marked-up-str)))
          (fsobj :file)
@@ -788,8 +789,6 @@ a 10-character string like this, nil is returned"
 (defun parse-line-as-ls1rl (PARSED-LINES STR)
   "Detects that the line looks as a line from `ls -1Rl`-like output. Returns
   NIL (not `ls -1Rl`-like line) or <parsed-line> modifying PARSED-LINES"
-  "Detects that the line looks as a line from `ls -1R`-like output. Returns
-  NIL (not `ls -1R`-like line) or <parsed-line> modifying PARSED-LINES"
   (let* ((last-i (1- (length STR)))
          (str-is-not-empty (>= last-i 0))
          (fsobj nil)
@@ -896,10 +895,10 @@ of `parse-line`. If there are multiple most popular formats (detection is not cl
 else the first one is selected. If cannot be found just one - NIL is returned"
   (let* ((most-parsed (get-most-parsed-lines PARSED-LINES))
          (most-parsed-num (length most-parsed)))
-    (if (and (> 1 most-parsed-num) HINT-FORMAT)
-        (car (remove-if-not (lambda (fmt-and-lines) (eql (car fmt-and-lines) HINT-FORMAT)) most-parsed))
+    (if (and (< 1 most-parsed-num) HINT-FORMAT)
+        (car (dbg ">>>>1>>>>" (remove-if-not (lambda (fmt-and-lines) (eql (car fmt-and-lines) HINT-FORMAT)) most-parsed) :cond t))
         ;; Covers all other cases including empty most-parsed:
-        (car most-parsed))))
+        (car (dbg ">>>>>2>>>>" most-parsed :cond t)))))
 
 (defun remount-fname (NEW-ROOT FNAME)
   "Changes the directory of FNAME"
@@ -1021,7 +1020,9 @@ else the first one is selected. If cannot be found just one - NIL is returned"
 
 (defun mkfnames-script (PARSED-LINES &key (HINT-FORMAT nil))
   "Prepares a shell script able to make all directories and files from parsed lines"
-  (let* ((parsed-line-items (cadr (get-detected-parsed-fnames PARSED-LINES :hint-format HINT-FORMAT)))
+  (let* ((parsed-line-items (dbg (format nil "!!!!!!mkfnames-script (hint-format: ~S)" HINT-FORMAT)
+                                 (cadr (get-detected-parsed-fnames PARSED-LINES :hint-format HINT-FORMAT))
+                                 :cond t))
          (commands (mapcan #'mkfname-script parsed-line-items))
          ;; optimization: remove duplicated commands (mkdir-s):
          (uniq-commands (remove-duplicates commands :test #'equalp :from-end t))
@@ -1469,6 +1470,22 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      (parse-line-as-tree pls "     +----file-2")
                      (parse-line-as-tree pls "+---file-3")
                      (parse-line-as-tree pls "tmp/")
+                     pls))))
+
+(5am:test parse-line-as-tree--test6
+          (5am:is (equalp
+                   (make-<parsed-lines>
+                    :dir-from-final-slash t
+                    :tree-hits 3
+                    :as-tree (list (make-<parsed-line> :format :tree :fname ".tech" :fsobj :dir)
+                                   (make-<parsed-line> :format :tree :fname ".tech/history.json" :fsobj :file)
+                                   (make-<parsed-line> :format :tree :fname ".tech/opened.txt" :fsobj :file))
+                    :tree-state (make-<tree-state> :indents nil :fnames '(".tech")
+                                                   :last-pure-fname ".tech"))
+                   (let ((pls (make-<parsed-lines>)))
+                     (parse-line-as-tree pls ".tech")
+                     (parse-line-as-tree pls "├── history.json")
+                     (parse-line-as-tree pls "└── opened.txt")
                      pls))))
 
 (5am:test parse-line-as-find--test1
@@ -1919,19 +1936,20 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
   (declare (ignorable cmd))
   ;; (trace parse-line)
   (let* ((hint-fmt (cli-kw-getopt cmd :from))
-         (force-fmode (clingon:getopt cmd :fmode))
-         (strip (clingon:getopt cmd :strip))
-         (new-root (clingon:getopt cmd :prepend))
+         (force-fmode (clingon:getopt cmd :fmode)) ;; TODO
+         (strip (clingon:getopt cmd :strip)) ;; TODO
+         (new-root (clingon:getopt cmd :prepend)) ;; TODO
          (pls (make-<parsed-lines>)))
     (loop :for line := (read-line *standard-input* nil nil)
           :while line
           :do
              (setf line (string-trim *unicode-whitespace-chars* line))
-             (unless (emptyp line) (parse-line pls line))
+             (unless (emptyp line)
+               (format t "!!!!!!!!!!!!!!! STR='~A'~%" line)
+               (parse-line pls line))
           :finally
-             (format t "!!!! ~A~%" hint-fmt)
-             (format t "~A~%" (mkfnames-script pls :hint-format hint-fmt))
-          )))
+             (format t "PLS=~S~%" pls)
+             (format t "~A~%" (mkfnames-script pls :hint-format hint-fmt)))))
 
 (defun cli-script-cmd-opts ()
   (list
