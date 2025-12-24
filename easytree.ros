@@ -481,10 +481,12 @@ the number of parts in parts-num cons-cell if it was supplied"
             :while (< i last-i)
             :until (alphanumericp ch)
             :do (incf i))
+      ;; (dbg (format nil "!!!!!!!!!!!!!!!!!!!!!! i: ~A j: ~A last-i: ~A ch-at: ~A~%" i j last-i (ch-at STR last-i)))
       ;; take all alphanum of `fname` and stop on the first non-alphanum after `fname` (ignoring spaces):
       (loop :initially (setf j last-i)
             :for ch := (ch-at STR j)
-            :until (alphanumericp ch)
+            :while (<= 0 j)
+            :until (or (alphanumericp ch) (char= #\. ch))
             :do (decf j)
             :finally (if (= j last-i)
                          (setf j nil)
@@ -836,6 +838,15 @@ a 10-character string like this, nil is returned"
 (defun parse-line (PARSED-LINES STR)
   "Parses string STR until there are active formats (formats that still parse),
 returns a list of lists (parsed strings) or null if nothing can be parsed more"
+  ;; (format t "STR: ~A~%AF: ~A PF: ~A AFPL: ~A~%"
+  ;;         STR
+  ;;         (get-most-parsed-lines PARSED-LINES)
+  ;;         (mapcar #'get-parse-func (mapcar #'car (get-most-parsed-lines PARSED-LINES)))
+  ;;         (progn
+  ;;            (dolist (fmt +formats+) (reset-parsed-lines-fails PARSED-LINES fmt))
+  ;;                    (parse-line-as-tree PARSED-LINES STR)
+  ;;                    )
+  ;;         )
   (let* ((active-formats (get-most-parsed-lines PARSED-LINES))
          (parse-funcs (mapcar #'get-parse-func
                               (mapcar #'car active-formats)))
@@ -1392,6 +1403,10 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
           (5am:is (equal '((fname . "file") (fname-start . 7) (fname-stop . 11))
                          (markup-line-as-tree "  +--- file/  "))))
 
+(5am:test markup-line-as-tree--test5
+          (5am:is (equal '((fname . ".") (fname-start . 0) (fname-stop))
+                         (markup-line-as-tree "."))))
+
 (5am:test parse-line-as-tree--test1
           (5am:is (equalp
                    nil
@@ -1886,38 +1901,52 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
 (5am:test replace-all-occurrences--test6
           (5am:is (equal
                    '("YaYbYcY" t)
-                   (let ((*dbg-cond* t))
-                     (multiple-value-list (replace-all-occurrences "abc" "" "Y"))))))
+                   (multiple-value-list (replace-all-occurrences "abc" "" "Y")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defun cli-kw-getopt (cmd key)
+  "Allows to get a choice/enum option as a symbol in :keyword package ready for eq/getf/..."
+  (intern (string-upcase (clingon:getopt cmd key)) :keyword))
 
 (defun cli-tests-handler (cmd)
   (declare (ignorable cmd))
   (uiop:symbol-call :fiveam :run! :suite1))
   ;; (sijo-doctest:test :ros.script.easytree))
 
-(defun cli-convert-cmd-handler (cmd)
-  (declare (ignorable cmd)))
+(defun cli-script-cmd-handler (cmd)
+  (declare (ignorable cmd))
+  ;; (trace parse-line)
+  (let* ((forced-fmt (cli-kw-getopt cmd :from))
+         (force-fmode (clingon:getopt cmd :fmode))
+         (strip (clingon:getopt cmd :strip))
+         (new-root (clingon:getopt cmd :prepend))
+         (pls (make-<parsed-lines>)))
+    (loop :for line := (read-line *standard-input* nil nil)
+          :while line
+          :do
+             (setf line (string-trim *unicode-whitespace-chars* line))
+             (unless (emptyp line) (parse-line pls line))
+          :finally
+             (format t "~A~%" (mkfnames-script pls)))))
 
-(defun cli-convert-cmd-opts ()
+(defun cli-script-cmd-opts ()
   (list
    (clingon:make-option
     :choice
-    :description "Input format (from)"
+    :description "Force input format when it's ambiguous"
     :short-name #\f
     :long-name "from"
     :key :from
     :items +fmt+)
    (clingon:make-option
-    :choice
-    :description "Output format (to)"
-    :short-name #\t
-    :long-name "to"
-    :key :to
-    :items +fmt+)
+    :flag
+    :description "Set permissions (file mode)"
+    :short-name #\m
+    :long-name "fmode"
+    :key :fmode)
    (clingon:make-option
-    :string
-    :description "Strip paths by PREFIX (N dirs, string dir)"
+    :integer
+    :description "Strip paths (N dirs up)"
     :short-name #\s
     :long-name "strip"
     :key :strip)
@@ -1935,16 +1964,16 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
    :description "Run tests"
    :handler #'cli-tests-handler))
 
-(defun cli-convert-cmd ()
+(defun cli-script-cmd ()
   (clingon:make-command
-   :name "convert"
-   :usage "[-f FMT] -t FMT [-s N,DIR] [-p DIR]" ;; --strip DIR/<int> --rebase DIR
+   :name "script"
+   :usage "[-f FMT] -t FMT [-s N,DIR] [-p DIR]" ;; --strip DIR/<int> --rebase DIR ;; TODO
    :examples '(("Convert from one format to another:" . "ls|convert -f LS -t TREE -")
                ("Convert from unknown format to another:" . "tree|convert -t TREE -")
                ("Convert from unknown format to another:" . "tree|convert -f AUTO -t FIND -"))
    :description "Convert a tree from one format to another one"
-   :handler #'cli-convert-cmd-handler
-   :options (cli-convert-cmd-opts)))
+   :handler #'cli-script-cmd-handler
+   :options (cli-script-cmd-opts)))
 
 
 (defun cli-main-cmd (argv0)
@@ -1955,7 +1984,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
    :version "0.1.0"
    :authors '("John Doe <john.doe@example.org>")
    :license "BSD 2-Clause"
-   :sub-commands (list (cli-convert-cmd) (cli-tests-cmd))
+   :sub-commands (list (cli-script-cmd) (cli-tests-cmd))
    :handler (lambda (cmd)
               (format t "No known subcommand provided!~%~%")
               (clingon:print-usage cmd *standard-output*)
