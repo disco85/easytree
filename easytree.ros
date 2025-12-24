@@ -15,6 +15,27 @@ exec ros -Q -- $0 "$@"
 
 ;; (format t "!!!!!!!!!!!!!!!!!!!!!~A~%" (uiop:version))
 
+(defparameter *unicode-whitespace-chars*
+  '(#\Space #\Tab #\Newline #\Return
+    #\No-break_space           ; U+00A0
+    #\Ogham_space_mark         ; U+1680
+    #\En_quad                  ; U+2000
+    #\Em_quad                  ; U+2001
+    #\En_space                 ; U+2002
+    #\Em_space                 ; U+2003
+    #\Three-per-em_space       ; U+2004
+    #\Four-per-em_space        ; U+2005
+    #\Six-per-em_space         ; U+2006
+    #\Figure_space             ; U+2007
+    #\Punctuation_space        ; U+2008
+    #\Thin_space               ; U+2009
+    #\Hair_space               ; U+200A
+    #\Zero_width_space         ; U+200B
+    #\Narrow_no-break_space    ; U+202F
+    #\Medium_mathematical_space; U+205F
+    #\Ideographic_space))      ; U+3000
+
+
 (defvar *dbg-cond* nil)
 (defun dbg (s &optional (x nil) &key (cond nil)) (when (or *dbg-cond* cond) (format t "~%*** TRACE[~A]: ~S~% ***~%" s x)) x)
 
@@ -503,9 +524,9 @@ the number of parts in parts-num cons-cell if it was supplied"
   "Detects that the line looks as a line from `tree`-like output. Returns
   NIL (not `tree`-like line) or <parsed-line> modifying PARSED-LINES"
   (let* ((marked-up-str (markup-line-as-tree STR))
-         ;; fname without path-prefix:
-         (pure-fname nil)
          (fname (cdr (assoc 'fname marked-up-str)))
+         (fsobj :file)
+         ;; fname without path-prefix:
          (pure-fname fname)
          (fname-start (cdr (assoc 'fname-start marked-up-str)))
          (fname-stop (cdr (assoc 'fname-stop marked-up-str)))
@@ -869,13 +890,14 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
 
 (declaim (ftype (function (<parsed-lines> &key (:HINT-FORMAT (or null <format>))) (or null list)) get-detected-parsed-fnames))
 (defun get-detected-parsed-fnames (PARSED-LINES &key (HINT-FORMAT nil))
-  "Returns list of <parsed-line> items when the format was detected after series of calls
+  "Returns a list (<format> (<parsed-line>+)) items when the format was detected after series of calls
 of `parse-line`. If there are multiple most popular formats (detection is not clean) then
-`hint-format` (it is a <format>) can help to prefer one of the same popular detected formats"
+`hint-format` (it is a <format>) can help to prefer one of the same popular detected formats,
+else the first one is selected. If cannot be found just one - NIL is returned"
   (let* ((most-parsed (get-most-parsed-lines PARSED-LINES))
          (most-parsed-num (length most-parsed)))
     (if (and (> 1 most-parsed-num) HINT-FORMAT)
-        (car (remove-if-not (lambda (fmt-and-lines) (eql fmt HINT-FORMAT)) most-parsed))
+        (car (remove-if-not (lambda (fmt-and-lines) (eql (car fmt-and-lines) HINT-FORMAT)) most-parsed))
         ;; Covers all other cases including empty most-parsed:
         (car most-parsed))))
 
@@ -957,9 +979,9 @@ of `parse-line`. If there are multiple most popular formats (detection is not cl
                 (touch-file quoted-fname1)
                 #|(uiop:run-program `("chmod" "755" ,quoted-fname1))|#)))) ;; TODO implement setting of fmode!
 
-(defun mkfnames (PARSED-LINES)
+(defun mkfnames (PARSED-LINE-ITEMS)
   "Makes directories and files from parsed lines"
-  (dolist (parsed-line PARSED-LINES) (mkfname parsed-line)))
+  (dolist (parsed-line PARSED-LINE-ITEMS) (mkfname parsed-line)))
 
 (declaim (ftype (function (<parsed-line>) list) mkfname-script))
 (defun mkfname-script (PARSED-LINE)
@@ -973,7 +995,7 @@ of `parse-line`. If there are multiple most popular formats (detection is not cl
                 (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
                               quoted-fname-parent
                               quoted-fname-parent)))
-              (list (format nil "[-f ~A ] || touch ~A || true"
+              (list (format nil "[ -f ~A ] || touch ~A || true"
                             quoted-fname
                             quoted-fname)))))
   ;; (let*
@@ -997,11 +1019,10 @@ of `parse-line`. If there are multiple most popular formats (detection is not cl
   ;;                                    quoted-fname)))))))
 
 
-(defun mkfnames-script (PARSED-LINES)
+(defun mkfnames-script (PARSED-LINES &key (HINT-FORMAT nil))
   "Prepares a shell script able to make all directories and files from parsed lines"
-  (let* ((fmt (<parsed-lines>-detected-format PARSED-LINES))
-         (lines (when fmt (get-parsed-lines PARSED-LINES fmt)))
-         (commands (mapcan #'mkfname-script lines))
+  (let* ((parsed-line-items (cadr (get-detected-parsed-fnames PARSED-LINES :hint-format HINT-FORMAT)))
+         (commands (mapcan #'mkfname-script parsed-line-items))
          ;; optimization: remove duplicated commands (mkdir-s):
          (uniq-commands (remove-duplicates commands :test #'equalp :from-end t))
          (script (format nil "~{~A~^~%~}" uniq-commands)))
@@ -1016,28 +1037,6 @@ of `parse-line`. If there are multiple most popular formats (detection is not cl
 ;; +-----  file  <- all lines will start with the same spacing policy
 
 ;; TODO add :unknown to :dir :file - CLI opt will force it to dir/file
-
-
-(defparameter *unicode-whitespace-chars*
-  '(#\Space #\Tab #\Newline #\Return
-    #\No-break_space           ; U+00A0
-    #\Ogham_space_mark         ; U+1680
-    #\En_quad                  ; U+2000
-    #\Em_quad                  ; U+2001
-    #\En_space                 ; U+2002
-    #\Em_space                 ; U+2003
-    #\Three-per-em_space       ; U+2004
-    #\Four-per-em_space        ; U+2005
-    #\Six-per-em_space         ; U+2006
-    #\Figure_space             ; U+2007
-    #\Punctuation_space        ; U+2008
-    #\Thin_space               ; U+2009
-    #\Hair_space               ; U+200A
-    #\Zero_width_space         ; U+200B
-    #\Narrow_no-break_space    ; U+202F
-    #\Medium_mathematical_space; U+205F
-    #\Ideographic_space))      ; U+3000
-
 
 (defun trim-any-whitespaces (string)
   "Like Python's str.strip()"
@@ -1710,11 +1709,12 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
           (5am:is (equal
                    "[ -d 'etc' ] || mkdir -p 'etc' || true
 [ -d 'etc/dir' ] || mkdir -p 'etc/dir' || true
-[-f 'etc/dir/file '\\'' 1' ] || touch 'etc/dir/file '\\'' 1' || true
-[-f 'etc/dir/file-2' ] || touch 'etc/dir/file-2' || true
-[-f 'etc/file-3' ] || touch 'etc/file-3' || true
+[ -f 'etc/dir/file '\\'' 1' ] || touch 'etc/dir/file '\\'' 1' || true
+[ -f 'etc/dir/file-2' ] || touch 'etc/dir/file-2' || true
+[ -f 'etc/file-3' ] || touch 'etc/file-3' || true
 [ -d 'tmp' ] || mkdir -p 'tmp' || true"
-                   (let ((pls (make-<parsed-lines>)))
+                   (let ((*dbg-cond* t)
+                         (pls (make-<parsed-lines>)))
                      (parse-line pls "etc")
                      (parse-line pls "+---dir/")
                      (parse-line pls "     +----file ' 1")
@@ -1906,7 +1906,9 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defun cli-kw-getopt (cmd key)
   "Allows to get a choice/enum option as a symbol in :keyword package ready for eq/getf/..."
-  (intern (string-upcase (clingon:getopt cmd key)) :keyword))
+  (let ((opt (clingon:getopt cmd key)))
+    (when opt
+      (intern (string-upcase opt) :keyword))))
 
 (defun cli-tests-handler (cmd)
   (declare (ignorable cmd))
@@ -1916,7 +1918,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
 (defun cli-script-cmd-handler (cmd)
   (declare (ignorable cmd))
   ;; (trace parse-line)
-  (let* ((forced-fmt (cli-kw-getopt cmd :from))
+  (let* ((hint-fmt (cli-kw-getopt cmd :from))
          (force-fmode (clingon:getopt cmd :fmode))
          (strip (clingon:getopt cmd :strip))
          (new-root (clingon:getopt cmd :prepend))
@@ -1927,7 +1929,9 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
              (setf line (string-trim *unicode-whitespace-chars* line))
              (unless (emptyp line) (parse-line pls line))
           :finally
-             (format t "~A~%" (mkfnames-script pls)))))
+             (format t "!!!! ~A~%" hint-fmt)
+             (format t "~A~%" (mkfnames-script pls :hint-format hint-fmt))
+          )))
 
 (defun cli-script-cmd-opts ()
   (list
@@ -1937,7 +1941,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
     :short-name #\f
     :long-name "from"
     :key :from
-    :items +fmt+)
+    :items +formats+)
    (clingon:make-option
     :flag
     :description "Set permissions (file mode)"
