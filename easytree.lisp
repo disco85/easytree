@@ -308,6 +308,10 @@ signle quotes). In general, shell paths look:
   (find-hits 0 :type integer)
   (ls1r-hits 0 :type integer)
   (ls1rl-hits 0 :type integer)
+  (tree-weight 1.0s0 :type short-float)
+  (find-weight 1.0s0 :type short-float)
+  (ls1r-weight 1.0s0 :type short-float)
+  (ls1rl-weight 1.0s0 :type short-float)
   ;; states are needed to parse lines correctly, without them it is impossible:
   (tree-state (make-<tree-state>) :type <tree-state>)
   (ls1r-state (make-<ls1r-state>) :type <ls1r-state>)
@@ -635,10 +639,10 @@ tree command MUST BE RAN WITH --noreport option!"
         (and (>= last-i 0)
              ;; it should not end with ':':
              (char/= #\: (ch-at STR last-i)))
-      (when (or (starts-with-p unquoted-str "/")
-                (starts-with-p unquoted-str "./")
-                (starts-with-p unquoted-str "../"))
+      (when (not (or (starts-with-p unquoted-str "├")
+                     (starts-with-p unquoted-str "+-")))
         (setf fname unquoted-str))
+      ;; (setf fname unquoted-str)
       (when (not (emptyp fname))
         (when (and last-parsed-line (starts-with-p fname last-parsed-line-fname))
           ;; Last parsed line  (of :find format) is prefix of mine, then it was a dir,
@@ -1537,6 +1541,21 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      (parse-line-as-find pls "'./dir2/dir 21'")
                      (parse-line-as-find pls "'./dir2/dir 21/file21'")
                      (parse-line-as-find pls "./dir3")
+                     pls))))
+
+(5am:test parse-line-as-find--test3
+          (5am:is (equalp
+                   (make-<parsed-lines>
+                    :dir-from-final-slash t
+                    :find-hits 3
+                    :as-find (list (make-<parsed-line> :format :find :fname ".tech" :fsobj :dir)
+                                   (make-<parsed-line> :format :find :fname ".tech/opened.txt" :fsobj :file)
+                                   (make-<parsed-line> :format :find :fname ".tech/history.json" :fsobj :file))
+                    :tree-state (make-<tree-state> :indents nil :fnames nil))
+                   (let ((pls (make-<parsed-lines>)))
+                     (parse-line-as-find pls ".tech")
+                     (parse-line-as-find pls ".tech/opened.txt")
+                     (parse-line-as-find pls ".tech/history.json")
                      pls))))
 
 (5am:test parse-fmode-str--test1
