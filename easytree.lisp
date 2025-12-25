@@ -634,7 +634,8 @@ tree command MUST BE RAN WITH --noreport option!"
          (lines (get-parsed-lines PARSED-LINES :find))
          (last-parsed-line (car (last lines)))
          (last-parsed-line-fname (when last-parsed-line (<parsed-line>-fname last-parsed-line)))
-         (unquoted-str (unquote-str STR)))
+         (unquoted-str0 (unquote-str STR))
+         (unquoted-str (when unquoted-str0 (string-right-trim "/" unquoted-str0))))
     (when
         (and (>= last-i 0)
              ;; it should not end with ':':
