@@ -1,5 +1,26 @@
-(load (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname)))
-(ql:quickload '(clingon fiveam uiop))
+;; Example of call (does not work at the moment):
+;;   sbcl --script ./easytree.lisp script -f TREE
+;; Worked:
+;;   ./build.sh easytree.lisp
+;; Then:
+;;   ./easytree --help
+
+
+;; #.(unless (find-package :ql)
+;;     (load (merge-pathnames "quicklisp/setup.lisp"
+;;                            (user-homedir-pathname))))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (load (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname)))
+  (ql:quickload '(clingon fiveam uiop)))
+
+;; #.(load (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname)))
+;; (eval-when (:compile-toplevel :load-toplevel :execute)
+;;   (load (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname)))
+;;   (ql:quickload '(clingon fiveam uiop)))
+
+
+;; (load (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname)))
+;; (ql:quickload '(clingon fiveam uiop))
 
 ;; (progn ;;init forms
 ;;   (ros:ensure-asdf)
@@ -7,9 +28,10 @@
 ;;   )
 
 
-;; (defpackage :ros.script.easytree
-;;   (:use :cl))
-;; (in-package :ros.script.easytree)
+(defpackage :easytree
+  (:use :cl)
+  (:export :main))
+(in-package :easytree)
 
 ;; (format t "!!!!!!!!!!!!!!!!!!!!!~A~%" (uiop:version))
 
@@ -498,7 +520,7 @@ the number of parts in parts-num cons-cell if it was supplied"
       (loop :initially (setf i 0)
             :for ch := (ch-at STR i)
             :while (< i last-i)
-            :until (alphanumericp ch)
+            :until (or (alphanumericp ch) (char= #\. ch))
             :do (incf i))
       ;; (dbg (format nil "!!!!!!!!!!!!!!!!!!!!!! i: ~A j: ~A last-i: ~A ch-at: ~A~%" i j last-i (ch-at STR last-i)))
       ;; take all alphanum of `fname` and stop on the first non-alphanum after `fname` (ignoring spaces):
@@ -1478,8 +1500,10 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                     :as-tree (list (make-<parsed-line> :format :tree :fname ".tech" :fsobj :dir)
                                    (make-<parsed-line> :format :tree :fname ".tech/history.json" :fsobj :file)
                                    (make-<parsed-line> :format :tree :fname ".tech/opened.txt" :fsobj :file))
-                    :tree-state (make-<tree-state> :indents nil :fnames '(".tech")
-                                                   :last-pure-fname ".tech"))
+                    :tree-state (make-<tree-state>
+                                 :indents '(4)
+                                 :fnames '("opened.txt" ".tech")
+                                 :last-pure-fname "opened.txt"))
                    (let ((pls (make-<parsed-lines>)))
                      (parse-line-as-tree pls ".tech")
                      (parse-line-as-tree pls "├── history.json")
@@ -1996,8 +2020,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
    :options (cli-script-cmd-opts)))
 
 
-(defun cli-main-cmd (argv0)
-  (declare (ignorable argv0))
+(defun cli-main-cmd ()
   (clingon:make-command
    :name "tree"
    :description "File system tree"
@@ -2039,13 +2062,33 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
           (t (list :binary (car fargv))))))
 
 
-(defun main (&rest argv)
+;; (defun main (&rest argv)
+;;   (let* ((*OS* (det-*OS*))
+;;          (*path-sep* (det-*path-sep*))
+;;          (qual-argv (process-argv argv))
+;;          (fixed-argv (ecase (car qual-argv)
+;;                        (:script (rest argv))
+;;                        (:binary argv))))
+;;     (clingon:run (cli-main-cmd (nth 1 qual-argv)) fixed-argv)))
+(defun main ()
   (let* ((*OS* (det-*OS*))
          (*path-sep* (det-*path-sep*))
-         (qual-argv (process-argv argv))
-         (fixed-argv (ecase (car qual-argv)
-                       (:script (rest argv))
-                       (:binary argv))))
-    (clingon:run (cli-main-cmd (nth 1 qual-argv)) fixed-argv)))
+         (argv (uiop:command-line-arguments)))
+    (clingon:run (cli-main-cmd) argv)))
+
+;; (defun running-as-script-p ()
+;;   (format t "!!! ~S~ script-name: ~A%" sb-ext:*posix-argv* (uiop:running-from-script-p))
+;;   (uiop:running-from-script-p))
+
+;; (when (running-as-script-p)
+;;   (main (cdr sb-ext:*posix-argv*)))
+;; (main (cdr sb-ext:*posix-argv*))
+
+;; sbcl --load easytree.lisp \
+;;      --eval '(easytree:main (uiop:command-line-arguments))' \
+;;      --quit
+
+
+
 
 ;;; vim: set ft=lisp lisp:
