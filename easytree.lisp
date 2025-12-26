@@ -308,10 +308,6 @@ signle quotes). In general, shell paths look:
   (find-hits 0 :type integer)
   (ls1r-hits 0 :type integer)
   (ls1rl-hits 0 :type integer)
-  (tree-weight 1.0s0 :type short-float)
-  (find-weight 1.0s0 :type short-float)
-  (ls1r-weight 1.0s0 :type short-float)
-  (ls1rl-weight 1.0s0 :type short-float)
   ;; states are needed to parse lines correctly, without them it is impossible:
   (tree-state (make-<tree-state>) :type <tree-state>)
   (ls1r-state (make-<ls1r-state>) :type <ls1r-state>)
@@ -373,11 +369,11 @@ CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12)))
 (declaim (ftype (function (<parsed-lines>) list) get-most-parsed-lines))
 (defun get-most-parsed-lines (PARSED-LINES)
   "Returns a list of the longest lists of accumulated <parsed-line> items
-in a form (<format> . lines-list) TODO"  ;; TODO is the return type the same as before?
+in a form (<format> lines-list) TODO"  ;; TODO is the return type the same as before?
   (let* ((fmts-with-parsed-lines
            (loop :for fmt :in +formats+
                  :collect (list (get-parsed-lines-hits PARSED-LINES fmt)
-                                fmt
+                                fmt  ;; (hits fmt (items*))
                                 (get-parsed-lines PARSED-LINES fmt))))
          (accumulated (reduce (lambda (acc x)
                                 (let ((k (car x)))
@@ -912,22 +908,55 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
       (setf (<parsed-lines>-detected-format PARSED-LINES) (caar active-formats)))
     active-format-parsed-lines))
 
-(declaim (ftype (function (<parsed-lines> &key (:HINT-FORMAT (or null <format>))) (or null list)) get-detected-parsed-fnames))
-(defun get-detected-parsed-fnames (PARSED-LINES &key (HINT-FORMAT nil))
+(declaim (ftype (function (<parsed-lines> &key
+                                          (:HINT-FORMAT (or null <format>))
+                                          (:NEW-ROOT (or null string))
+                                          (:STRIP integer))
+                          (or null list))
+                get-detected-parsed-fnames))
+(defun get-detected-parsed-fnames (PARSED-LINES &key (HINT-FORMAT nil) (NEW-ROOT nil) (STRIP 0))
   "Returns a list (<format> (<parsed-line>+)) items when the format was detected after series of calls
 of `parse-line`. If there are multiple most popular formats (detection is not clean) then
 `hint-format` (it is a <format>) can help to prefer one of the same popular detected formats,
 else the first one is selected. If cannot be found just one - NIL is returned"
-  (let* ((most-parsed (get-most-parsed-lines PARSED-LINES))
-         (most-parsed-num (length most-parsed)))
-    (if (and (< 1 most-parsed-num) HINT-FORMAT)
-        (car (dbg ">>>>1>>>>" (remove-if-not (lambda (fmt-and-lines) (eql (car fmt-and-lines) HINT-FORMAT)) most-parsed) :cond t))
-        ;; Covers all other cases including empty most-parsed:
-        (car (dbg ">>>>>2>>>>" most-parsed :cond t)))))
+  (let* ((most-parsed-variants (get-most-parsed-lines PARSED-LINES))
+         (most-parsed-num (length most-parsed-variants))
+         (chosen-most-parsed (if (and (< 1 most-parsed-num) HINT-FORMAT)
+                                 (car (remove-if-not (lambda (fmt-and-lines)
+                                                       (eql (car fmt-and-lines) HINT-FORMAT))
+                                                     most-parsed-variants))
+                                 ;; Covers all other cases including empty most-parsed:
+                                 (car most-parsed-variants))))
+    (when (and STRIP (> STRIP 0) chosen-most-parsed)
+      (dolist (parsed-line (cadr chosen-most-parsed))
+        ;; (break "!!! ~S" parsed-line)
+        (setf (<parsed-line>-fname parsed-line)
+              (strip-top-dirs (<parsed-line>-fname parsed-line) STRIP))))
+    (when (and NEW-ROOT chosen-most-parsed)
+      (dolist (parsed-line (cadr chosen-most-parsed))
+        (setf (<parsed-line>-fname parsed-line)
+              (remount-fname NEW-ROOT (<parsed-line>-fname parsed-line)))))
+    chosen-most-parsed))
 
 (defun remount-fname (NEW-ROOT FNAME)
   "Changes the directory of FNAME"
   (concatenate 'string (string-right-trim "/" NEW-ROOT) "/" (string-left-trim "./" FNAME)))
+
+(defun strip-top-dirs (path n)
+  "Removes upper/top directories: /a/b/c -> b/c"
+  (if (<= n 0)
+      path
+      (let* ((pn (pathname path))
+             (dirs (pathname-directory pn))
+             (new-dirs (nthcdr n (rest dirs)))
+             (done (/= (length new-dirs) (length dirs))))
+        (if done
+            (namestring (make-pathname
+                         :directory (cons :relative (nthcdr n (rest dirs)))
+                         :name (pathname-name pn)
+                         :type (pathname-type pn)
+                         :defaults pn))
+            path))))
 
 (defun replace-all-occurrences (IN-STR OLD NEW)
   (let* ((in-len (length IN-STR))
@@ -1014,7 +1043,9 @@ else the first one is selected. If cannot be found just one - NIL is returned"
                           quoted-fname
                           quoted-fname))
     :on-file (append
-              (when quoted-fname-parent
+              (when (and quoted-fname-parent
+                         ;; quoted '.' - "inside current dir", we won't ensure it:
+                         (string/= "'.'" quoted-fname-parent))
                 ;; ensure that the parent of a file is created:
                 (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
                               quoted-fname-parent
@@ -1042,11 +1073,34 @@ else the first one is selected. If cannot be found just one - NIL is returned"
   ;;                                    quoted-fname
   ;;                                    quoted-fname)))))))
 
+;; (defmacro with-fname (PARSED-LINE
+;;                       QUOTED-FNAME-PARENT-VAR
+;;                       QUOTED-FNAME-VAR
+;;                       &body body)
+;;   (let ((on-dir nil)
+;;         (on-file nil)
+;;         (current nil)
+;;         (g-fname (gensym "FNAME-"))
+;;         (g-quote-path (gensym "QUOTE-PATH-")))
+;;     (dolist (form body)
+;;       (cond
+;;         ((eql form :on-dir)     (setf current 'on-dir))
+;;         ((eql form :on-file)    (setf current 'on-file))
+;;         ((eql current 'on-dir)  (push form on-dir))
+;;         ((eql current 'on-file) (push form on-file))
+;;         (t (error "WITH-FNAME: unexpected form ~S" form))))
+;;     (unless on-dir (error "WITH-FNAME: missing :on-dir body"))
+;;     (unless on-file (error "WITH-FNAME: missing :on-file body"))
+;;     `(let* ((,g-quote-path 0)))))
 
-(defun mkfnames-script (PARSED-LINES &key (HINT-FORMAT nil))
+;; TODO force-fmode
+(defun mkfnames-script (PARSED-LINES &key (HINT-FORMAT nil) (NEW-ROOT nil) (STRIP 0) (FORCE-FMODE nil))
   "Prepares a shell script able to make all directories and files from parsed lines"
-  (let* ((parsed-line-items (dbg (format nil "!!!!!!mkfnames-script (hint-format: ~S)" HINT-FORMAT)
-                                 (cadr (get-detected-parsed-fnames PARSED-LINES :hint-format HINT-FORMAT))
+  (let* ((parsed-line-items (dbg (format t "!!!!!!mkfnames-script (hint-format: ~S)" HINT-FORMAT)
+                                 (cadr (get-detected-parsed-fnames PARSED-LINES
+                                                                   :hint-format HINT-FORMAT
+                                                                   :new-root NEW-ROOT
+                                                                   :strip STRIP))
                                  :cond t))
          (commands (mapcan #'mkfname-script parsed-line-items))
          ;; optimization: remove duplicated commands (mkdir-s):
@@ -1225,9 +1279,6 @@ else the first one is selected. If cannot be found just one - NIL is returned"
 (defun det-*path-sep* ()
   (ecase *OS* (:windows "\\") (:unix "/") (:mac "/")))
 
-
-;; Known dir listing formats
-(defconstant +fmt+ '(:ls :find :tree))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Logic ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defun detect-series (INPUT CLASSIFIERS)
@@ -1978,9 +2029,9 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
   (declare (ignorable cmd))
   ;; (trace parse-line)
   (let* ((hint-fmt (cli-kw-getopt cmd :from))
-         (force-fmode (clingon:getopt cmd :fmode)) ;; TODO
-         (strip (clingon:getopt cmd :strip)) ;; TODO
-         (new-root (clingon:getopt cmd :prepend)) ;; TODO
+         (force-fmode (clingon:getopt cmd :fmode))
+         (strip (clingon:getopt cmd :strip))
+         (new-root (clingon:getopt cmd :prepend))
          (pls (make-<parsed-lines>)))
     (loop :for line := (read-line *standard-input* nil nil)
           :while line
@@ -1991,7 +2042,11 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                (parse-line pls line))
           :finally
              (format t "PLS=~S~%" pls)
-             (format t "~A~%" (mkfnames-script pls :hint-format hint-fmt)))))
+             (format t "~A~%" (mkfnames-script pls
+                                               :hint-format hint-fmt
+                                               :new-root new-root
+                                               :strip strip
+                                               :force-fmode force-fmode)))))
 
 (defun cli-script-cmd-opts ()
   (list
@@ -2013,6 +2068,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
     :description "Strip paths (N dirs up)"
     :short-name #\s
     :long-name "strip"
+    :initial-value 0
     :key :strip)
    (clingon:make-option
     :string
