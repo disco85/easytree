@@ -33,7 +33,59 @@
   (:export :main))
 (in-package :easytree)
 
+;; Specification of a bit in strings like "-rw-r--r--":
+(defstruct <fmode-spec>
+  (pos 0 :type integer)
+  (char nil :type character)
+  (value nil :type integer)
+  (descr nil :type string))
+
+
+;; Bits specifications for "-rw-r--r--" string:
+(defparameter *fmode-bits* (make-array 10))
+;; Initialization of bits specifications for "-rw-r--r--" strings:
+(dotimes (i 10) (setf (aref *fmode-bits* i) (make-hash-table :test 'equal)))
+(defun defmode-in (VAR POS CHAR VALUE DESCR)
+  (when (and (>= POS 0) (< POS (length *fmode-bits*)))
+    (setf (gethash CHAR (aref VAR POS))
+          (make-<fmode-spec> :pos POS :char CHAR :value VALUE :descr DESCR))))
+
+;; Character positions 0-9 of "-rw-r--r--":
+(defmode-in *fmode-bits* 0 #\- #x8000 "regular file")
+(defmode-in *fmode-bits* 0 #\d #x4000 "directory")
+(defmode-in *fmode-bits* 0 #\l #xA000 "symbolic link")
+(defmode-in *fmode-bits* 0 #\c #x2000 "character device")
+(defmode-in *fmode-bits* 0 #\b #x6000 "block device")
+(defmode-in *fmode-bits* 0 #\p #x1000 "named pipe")
+(defmode-in *fmode-bits* 0 #\s #xC000 "socket")
+(defmode-in *fmode-bits* 1 #\r #x0100 "owner read")
+(defmode-in *fmode-bits* 1 #\- #x0000 "no owner read")
+(defmode-in *fmode-bits* 2 #\w #x0080 "owner write")
+(defmode-in *fmode-bits* 2 #\- #x0000 "no owner write")
+(defmode-in *fmode-bits* 3 #\x #x0040 "owner exec")
+(defmode-in *fmode-bits* 3 #\s #x0800 "setuid+exec")
+(defmode-in *fmode-bits* 3 #\S #x0800 "setuid+no exec")
+(defmode-in *fmode-bits* 3 #\- #x0000 "no owner exec")
+(defmode-in *fmode-bits* 4 #\r #x0020 "group read")
+(defmode-in *fmode-bits* 4 #\- #x0000 "no group read")
+(defmode-in *fmode-bits* 5 #\w #x0010 "group write")
+(defmode-in *fmode-bits* 5 #\- #x0000 "no group write")
+(defmode-in *fmode-bits* 6 #\x #x0008 "group exec")
+(defmode-in *fmode-bits* 6 #\s #x0400 "setgid+exec")
+(defmode-in *fmode-bits* 6 #\S #x0400 "setgid+no exec")
+(defmode-in *fmode-bits* 6 #\- #x0000 "no group exec")
+(defmode-in *fmode-bits* 7 #\r #x0004 "other read")
+(defmode-in *fmode-bits* 7 #\- #x0000 "no other read")
+(defmode-in *fmode-bits* 8 #\w #x0002 "other write")
+(defmode-in *fmode-bits* 8 #\- #x0000 "no other write")
+(defmode-in *fmode-bits* 9 #\x #x0001 "other exec")
+(defmode-in *fmode-bits* 9 #\t #x0200 "sticky+exec")
+(defmode-in *fmode-bits* 9 #\T #x0200 "sticky+no exec")
+(defmode-in *fmode-bits* 9 #\- #x0000 "no other exec")
+
+
 ;; (format t "!!!!!!!!!!!!!!!!!!!!!~A~%" (uiop:version))
+(defconstant +tree-decorations+ "├└-─+` ")
 
 (defparameter *unicode-whitespace-chars*
   '(#\Space #\Tab #\Newline #\Return
@@ -55,6 +107,7 @@
     #\Medium_mathematical_space; U+205F
     #\Ideographic_space))      ; U+3000
 
+(defparameter *unicode-whitespace-string* (coerce *unicode-whitespace-chars* 'string))
 
 (defvar *dbg-cond* nil)
 (defun dbg (s &optional (x nil) &key (cond nil)) (when (or *dbg-cond* cond) (format t "~%*** TRACE[~A]: ~S~% ***~%" s x)) x)
@@ -63,7 +116,6 @@
 (defun implies (a b)
   "Implication: a -> b"
   (or (not a) b))
-
 
 (defun starts-with-p (STRING PREFIX &key CASE-INSENSITIVE)
   "Check that `string` starts with `PREFIX`"
@@ -507,8 +559,38 @@ the number of parts in parts-num cons-cell if it was supplied"
 (declaim (ftype (function (<parsed-lines> string) (or null t)) parse-line-as-ls1r))
 (declaim (ftype (function (<parsed-lines> string) (or null t)) parse-line-as-ls1rl))
 
-;; TODO support /etc (currently I think / will not be collected as fname)
 (defun markup-line-as-tree (STR)
+  "Marks up STR possibly looking as a line from `tree`-like output. Returns
+  NIL (not `tree`-like line) or alist:
+'((fname . file-name) (fname-start . index-of-fname) (fname-stop . index-or-NIL))"
+  (let* ((last-i (1- (length STR)))
+         (closing-quote-pos (position #\" STR :from-end t))
+         (closing-quote-p closing-quote-pos)
+         (opening-quote-pos (position #\" STR))
+         (opening-quote-p (and opening-quote-pos (< opening-quote-pos last-i)))
+         (fmode-parsed (parse-fmode-str STR *fmode-bits*))
+         (quoted-p (and opening-quote-p closing-quote-p))
+         fname0 fname-but-end-spec-symbols fname-start unquoted-start fname-stop)
+    (when (and (>= last-i 0) ;; TODO avoid "'xyz'"
+               (char/= #\: (ch-at STR last-i))
+               (not fmode-parsed))
+      (if quoted-p
+                ;; file/dir it seems is quoted:
+                (setf unquoted-start (1+ opening-quote-pos)
+                      fname-start opening-quote-pos)
+                ;; not quoted, so walk while "- ", "└ ", "─ ", "- ", "+ ":
+                (setf unquoted-start (or (position-if-not (lambda (ch) (find ch +tree-decorations+)) STR) 0)
+                      fname-start unquoted-start))
+      (setf fname0 (string-right-trim *unicode-whitespace-string* (subseq STR (or unquoted-start fname-start))))
+      (when quoted-p (setf fname0 (string-right-trim "\"" fname0)))
+      (setf fname-but-end-spec-symbols (string-right-trim "/" fname0))
+      (setf fname-stop
+            (when (< (length fname-but-end-spec-symbols) (length fname0))
+              (+ fname-start (length fname-but-end-spec-symbols))))
+      (list (cons 'fname fname-but-end-spec-symbols) (cons 'fname-start fname-start) (cons 'fname-stop fname-stop)))))
+
+;; TODO support /etc (currently I think / will not be collected as fname)
+(defun markup-line-as-tree1 (STR)
   "Marks up STR possibly looking as a line from `tree`-like output. Returns
   NIL (not `tree`-like line) or alist:
 '((fname . file-name) (fname-start . index-of-fname) (fname-stop . index-or-NIL))"
@@ -631,11 +713,13 @@ tree command MUST BE RAN WITH --noreport option!"
          (last-parsed-line (car (last lines)))
          (last-parsed-line-fname (when last-parsed-line (<parsed-line>-fname last-parsed-line)))
          (unquoted-str0 (unquote-str STR))
-         (unquoted-str (when unquoted-str0 (string-right-trim "/" unquoted-str0))))
+         (unquoted-str (when unquoted-str0 (string-right-trim "/" unquoted-str0)))
+         (fmode-parsed (parse-fmode-str STR *fmode-bits*)))
     (when
         (and (>= last-i 0)
              ;; it should not end with ':':
-             (char/= #\: (ch-at STR last-i)))
+             (char/= #\: (ch-at STR last-i))
+             (not fmode-parsed))
       (when (not (or (starts-with-p unquoted-str "├")
                      (starts-with-p unquoted-str "+-")))
         (setf fname unquoted-str))
@@ -652,57 +736,6 @@ tree command MUST BE RAN WITH --noreport option!"
         (incf (<parsed-lines>-find-hits PARSED-LINES))
         (add-to-parsed-lines PARSED-LINES :find
                              (make-<parsed-line> :format :find :fname fname :fmode 0 :fsobj :file))))))
-
-
-;; Specification of a bit in strings like "-rw-r--r--":
-(defstruct <fmode-spec>
-  (pos 0 :type integer)
-  (char nil :type character)
-  (value nil :type integer)
-  (descr nil :type string))
-
-
-;; Bits specifications for "-rw-r--r--" string:
-(defparameter *fmode-bits* (make-array 10))
-;; Initialization of bits specifications for "-rw-r--r--" strings:
-(dotimes (i 10) (setf (aref *fmode-bits* i) (make-hash-table :test 'equal)))
-(defun defmode-in (VAR POS CHAR VALUE DESCR)
-  (when (and (>= POS 0) (< POS (length *fmode-bits*)))
-    (setf (gethash CHAR (aref VAR POS))
-          (make-<fmode-spec> :pos POS :char CHAR :value VALUE :descr DESCR))))
-
-;; Character positions 0-9 of "-rw-r--r--":
-(defmode-in *fmode-bits* 0 #\- #x8000 "regular file")
-(defmode-in *fmode-bits* 0 #\d #x4000 "directory")
-(defmode-in *fmode-bits* 0 #\l #xA000 "symbolic link")
-(defmode-in *fmode-bits* 0 #\c #x2000 "character device")
-(defmode-in *fmode-bits* 0 #\b #x6000 "block device")
-(defmode-in *fmode-bits* 0 #\p #x1000 "named pipe")
-(defmode-in *fmode-bits* 0 #\s #xC000 "socket")
-(defmode-in *fmode-bits* 1 #\r #x0100 "owner read")
-(defmode-in *fmode-bits* 1 #\- #x0000 "no owner read")
-(defmode-in *fmode-bits* 2 #\w #x0080 "owner write")
-(defmode-in *fmode-bits* 2 #\- #x0000 "no owner write")
-(defmode-in *fmode-bits* 3 #\x #x0040 "owner exec")
-(defmode-in *fmode-bits* 3 #\s #x0800 "setuid+exec")
-(defmode-in *fmode-bits* 3 #\S #x0800 "setuid+no exec")
-(defmode-in *fmode-bits* 3 #\- #x0000 "no owner exec")
-(defmode-in *fmode-bits* 4 #\r #x0020 "group read")
-(defmode-in *fmode-bits* 4 #\- #x0000 "no group read")
-(defmode-in *fmode-bits* 5 #\w #x0010 "group write")
-(defmode-in *fmode-bits* 5 #\- #x0000 "no group write")
-(defmode-in *fmode-bits* 6 #\x #x0008 "group exec")
-(defmode-in *fmode-bits* 6 #\s #x0400 "setgid+exec")
-(defmode-in *fmode-bits* 6 #\S #x0400 "setgid+no exec")
-(defmode-in *fmode-bits* 6 #\- #x0000 "no group exec")
-(defmode-in *fmode-bits* 7 #\r #x0004 "other read")
-(defmode-in *fmode-bits* 7 #\- #x0000 "no other read")
-(defmode-in *fmode-bits* 8 #\w #x0002 "other write")
-(defmode-in *fmode-bits* 8 #\- #x0000 "no other write")
-(defmode-in *fmode-bits* 9 #\x #x0001 "other exec")
-(defmode-in *fmode-bits* 9 #\t #x0200 "sticky+exec")
-(defmode-in *fmode-bits* 9 #\T #x0200 "sticky+no exec")
-(defmode-in *fmode-bits* 9 #\- #x0000 "no other exec")
 
 (declaim (ftype (function (string array) (or null integer)) parse-fmode-str))
 (defun parse-fmode-str (STR FMODE-SPECS)
@@ -805,7 +838,7 @@ a 10-character string like this, nil is returned"
                              (> i (length total-str))
                              ;; ch is NIL if zero increments, so it's second condition.
                              ;; it means we stopped on digit or whitespace:
-                             (or (digit-char-p ch) (find ch "\r\n\t "))))))))
+                             (or (digit-char-p ch) (find ch *unicode-whitespace-string*))))))))
 
 (defun parse-line-as-ls1rl (PARSED-LINES STR)
   "Detects that the line looks as a line from `ls -1Rl`-like output. Returns
@@ -983,6 +1016,11 @@ else the first one is selected. If cannot be found just one - NIL is returned"
                       (repl 0 res)))
       (values res-str done))))
 
+(defmacro prog-if (VAR VAL &body BODY)
+  "Executes body with accessible variable called VAR if the value VAL is not NIL and returns the body's
+result. Else - NIL"
+  `(let ((,VAR ,VAL))
+     (when ,VAR ,@BODY)))
 
 (defmacro with-fname (PARSED-LINE
                       QUOTED-FNAME-PARENT-VAR
@@ -1019,6 +1057,12 @@ else the first one is selected. If cannot be found just one - NIL is returned"
            (:file
             (progn ,@(nreverse on-file))))))))
 
+(defun ensure-file-exists (path)
+  (unless (probe-file path)
+    (with-open-file (stream path
+                            :direction :output
+                            :if-does-not-exist :create))))
+
 (defun mkfname (PARSED-LINE)
   (with-fname PARSED-LINE quoted-fname-parent quoted-fname
     :on-dir (let ((quoted-fname1 (pathname quoted-fname)))
@@ -1029,7 +1073,7 @@ else the first one is selected. If cannot be found just one - NIL is returned"
                    (quoted-fname1 (pathname quoted-fname)))
               (unless (uiop:directory-exists-p quoted-fname-parent1)
                 (ensure-directories-exist quoted-fname-parent1)
-                (touch-file quoted-fname1)
+                (ensure-file-exists quoted-fname1)
                 #|(uiop:run-program `("chmod" "755" ,quoted-fname1))|#)))) ;; TODO implement setting of fmode!
 
 (defun mkfnames (PARSED-LINE-ITEMS)
@@ -1100,8 +1144,7 @@ else the first one is selected. If cannot be found just one - NIL is returned"
                                  (cadr (get-detected-parsed-fnames PARSED-LINES
                                                                    :hint-format HINT-FORMAT
                                                                    :new-root NEW-ROOT
-                                                                   :strip STRIP))
-                                 :cond t))
+                                                                   :strip STRIP))))
          (commands (mapcan #'mkfname-script parsed-line-items))
          ;; optimization: remove duplicated commands (mkdir-s):
          (uniq-commands (remove-duplicates commands :test #'equalp :from-end t))
@@ -1804,15 +1847,15 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                    (let (;;(*dbg-cond* t)
                          (pls (make-<parsed-lines>)))
                      (parse-line pls "./dir1")
-                     (parse-line pls "'./dir1/dir 11'")
-                     (parse-line pls "'./dir1/dir 11/file11'")
-                     (parse-line pls "'./dir1/dir 11/file12'")
-                     (parse-line pls "'./dir2/dir 21'")
-                     (parse-line pls "'./dir2/dir 21/file21'")
+                     (parse-line pls "./dir1/dir 11")
+                     (parse-line pls "./dir1/dir 11/file11")
+                     (parse-line pls "./dir1/dir 11/file12")
+                     (parse-line pls "./dir2/dir 21")
+                     (parse-line pls "./dir2/dir 21/file21")
                      (parse-line pls "./dir3")
-                     ;; (dbg (format t "4!!!!!!!!!!!! tree-hits: ~A find-hits: ~A ls1r-hits: ~A ls1rl-hits: ~A~%"
-                     ;;              (<parsed-lines>-tree-hits pls) (<parsed-lines>-find-hits pls)
-                     ;;              (<parsed-lines>-ls1r-hits pls) (<parsed-lines>-ls1rl-hits pls)))
+                     (dbg (format t "4!!!!!!!!!!!! tree-hits: ~A find-hits: ~A ls1r-hits: ~A ls1rl-hits: ~A~%"
+                                  (<parsed-lines>-tree-hits pls) (<parsed-lines>-find-hits pls)
+                                  (<parsed-lines>-ls1r-hits pls) (<parsed-lines>-ls1rl-hits pls)))
                      (<parsed-lines>-detected-format pls)))))
 
 (5am:test mkfnames-script--test1
