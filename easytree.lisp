@@ -815,7 +815,7 @@ a 10-character string like this, nil is returned"
                                 (make-<parsed-line> :format :ls1r :fname fname :fmode 0 :fsobj fsobj)))
           ((<parsed-lines>-verbose PARSED-LINES)
            (setf (<parsed-lines>-ls1r-fail-msg PARSED-LINES)
-                 (format t "ERROR: cannot parse '~A': ~A~%" STR (or fail-msg "unknown error")))))
+                 (format *error-output* "ERROR: cannot parse '~A': ~A~%" STR (or fail-msg "unknown error")))))
         ;; (dbg (format nil "!!!!!!!!!!!!! STR: ~A  fname: ~A~%~A~%" STR fname
         ;;              (maphash (lambda (k v) (format t "  ~A => ~A~%" k v)) state-fname-hashes)) nil :cond t)
         ))))
@@ -892,7 +892,7 @@ a 10-character string like this, nil is returned"
                                  (make-<parsed-line> :format :ls1rl :fname fname :fmode fmode-int :fsobj fsobj)))
            ((<parsed-lines>-verbose PARSED-LINES)
             (setf (<parsed-lines>-ls1rl-fail-msg PARSED-LINES)
-                  (format t "ERROR: cannot parse '~A': ~A~%" STR (or fail-msg "unknown error")))))
+                  (format *error-output* "ERROR: cannot parse '~A': ~A~%" STR (or fail-msg "unknown error")))))
          ;; (dbg (format nil "!!!!!!!!!!!!! STR: ~A  fname: ~A~%~A~%" STR fname
          ;;              (maphash (lambda (k v) (format t "  ~A => ~A~%" k v)) state-fname-hashes)) nil :cond t)
          ))
@@ -1080,42 +1080,31 @@ result. Else - NIL"
   "Makes directories and files from parsed lines"
   (dolist (parsed-line PARSED-LINE-ITEMS) (mkfname parsed-line)))
 
+(defconstant +non-script-fnames+ '("'.'" "'..'" "." ".."))
+
+(defun fname-for-script (FNAME)
+  "Returns T if FNAME is good for script (no reason to do it for . or ..)"
+  (not (member FNAME +non-script-fnames+ :test #'string=)))
+
 (declaim (ftype (function (<parsed-line>) list) mkfname-script))
 (defun mkfname-script (PARSED-LINE)
   (with-fname PARSED-LINE quoted-fname-parent quoted-fname
-    :on-dir (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
-                          quoted-fname
-                          quoted-fname))
-    :on-file (append
-              (when (and quoted-fname-parent
-                         ;; quoted '.' - "inside current dir", we won't ensure it:
-                         (string/= "'.'" quoted-fname-parent))
-                ;; ensure that the parent of a file is created:
-                (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
-                              quoted-fname-parent
-                              quoted-fname-parent)))
-              (list (format nil "[ -f ~A ] || touch ~A || true"
+    :on-dir (when (fname-for-script quoted-fname)
+              (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
                             quoted-fname
-                            quoted-fname)))))
-  ;; (let*
-  ;;     ((quote-path (lambda (f) (format nil "'~A'"
-  ;;                                      (replace-all-occurrences f "'" "'\\''"))))
-  ;;      (fname (<parsed-line>-fname PARSED-LINE))
-  ;;      (quoted-fname-parent (when fname (funcall quote-path (parent-path fname))))
-  ;;      (quoted-fname (when fname (funcall quote-path fname))))
-  ;;   (when quoted-fname
-  ;;     (case (<parsed-line>-fsobj PARSED-LINE)
-  ;;       (:dir (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
-  ;;                           quoted-fname
-  ;;                           quoted-fname)))
-  ;;       (:file (append (when quoted-fname-parent
-  ;;                        ;; ensure that the parent of a file is created:
-  ;;                        (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
-  ;;                                      quoted-fname-parent
-  ;;                                      quoted-fname-parent)))
-  ;;                      (list (format nil "[-f ~A ] || touch ~A || true"
-  ;;                                    quoted-fname
-  ;;                                    quoted-fname)))))))
+                            quoted-fname)))
+    :on-file (when (fname-for-script quoted-fname)
+               (append
+                (when (and quoted-fname-parent
+                           ;; quoted '.' - "inside current dir", we won't ensure it:
+                           (string/= "'.'" quoted-fname-parent))
+                  ;; ensure that the parent of a file is created:
+                  (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
+                                quoted-fname-parent
+                                quoted-fname-parent)))
+                (list (format nil "[ -f ~A ] || touch ~A || true"
+                              quoted-fname
+                              quoted-fname))))))
 
 ;; (defmacro with-fname (PARSED-LINE
 ;;                       QUOTED-FNAME-PARENT-VAR
@@ -1140,7 +1129,7 @@ result. Else - NIL"
 ;; TODO force-fmode
 (defun mkfnames-script (PARSED-LINES &key (HINT-FORMAT nil) (NEW-ROOT nil) (STRIP 0) (FORCE-FMODE nil))
   "Prepares a shell script able to make all directories and files from parsed lines"
-  (let* ((parsed-line-items (dbg (format t "!!!!!!mkfnames-script (hint-format: ~S)" HINT-FORMAT)
+  (let* ((parsed-line-items (dbg (format nil "!!!!!!mkfnames-script (hint-format: ~S)" HINT-FORMAT)
                                  (cadr (get-detected-parsed-fnames PARSED-LINES
                                                                    :hint-format HINT-FORMAT
                                                                    :new-root NEW-ROOT
@@ -1853,7 +1842,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      (parse-line pls "./dir2/dir 21")
                      (parse-line pls "./dir2/dir 21/file21")
                      (parse-line pls "./dir3")
-                     (dbg (format t "4!!!!!!!!!!!! tree-hits: ~A find-hits: ~A ls1r-hits: ~A ls1rl-hits: ~A~%"
+                     (dbg (format nil "4!!!!!!!!!!!! tree-hits: ~A find-hits: ~A ls1r-hits: ~A ls1rl-hits: ~A~%"
                                   (<parsed-lines>-tree-hits pls) (<parsed-lines>-find-hits pls)
                                   (<parsed-lines>-ls1r-hits pls) (<parsed-lines>-ls1rl-hits pls)))
                      (<parsed-lines>-detected-format pls)))))
@@ -1866,7 +1855,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
 [ -f 'etc/dir/file-2' ] || touch 'etc/dir/file-2' || true
 [ -f 'etc/file-3' ] || touch 'etc/file-3' || true
 [ -d 'tmp' ] || mkdir -p 'tmp' || true"
-                   (let ((*dbg-cond* t)
+                   (let (;;(*dbg-cond* t)
                          (pls (make-<parsed-lines>)))
                      (parse-line pls "etc")
                      (parse-line pls "+---dir/")
