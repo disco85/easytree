@@ -1091,26 +1091,25 @@ result. Else - NIL"
   (with-fname PARSED-LINE quoted-fname-parent quoted-fname
     :on-dir (when (fname-for-script quoted-fname)
               (append
-               (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
-                             quoted-fname
-                             quoted-fname))
-               ;; TODO command must be before || true
-               (mapcar (lambda (chmod-cmd) (concatenate 'string chmod-cmd " " quoted-fname))
-                       (mkfmode-script (<parsed-line>-fmode PARSED-LINE)))))
+               (list (format nil "[ -d ~A ] || { " quoted-fname)
+                     (format nil "  mkdir -p ~A" quoted-fname))
+               (mapcar (lambda (chmod-cmd) (format nil "  ~A ~A" chmod-cmd quoted-fname))
+                       (mkfmode-script (<parsed-line>-fmode PARSED-LINE)))
+               (list "}")))
     :on-file (when (fname-for-script quoted-fname)
                (append
                 (when (and quoted-fname-parent
                            ;; quoted '.' - "inside current dir", we won't ensure it:
                            (string/= "'.'" quoted-fname-parent))
                   ;; ensure that the parent of a file is created:
-                  (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
-                                quoted-fname-parent
-                                quoted-fname-parent)))
-                (list (format nil "[ -f ~A ] || touch ~A || true"
-                              quoted-fname
-                              quoted-fname))
-                (mapcar (lambda (chmod-cmd) (concatenate 'string chmod-cmd " " quoted-fname))
-                       (mkfmode-script (<parsed-line>-fmode PARSED-LINE)))))))
+                  (list (format nil "[ -d ~A ] || {" quoted-fname-parent)
+                        (format nil "  mkdir -p ~A" quoted-fname-parent)
+                        "}"))
+                (list (format nil "[ -f ~A ] || {" quoted-fname)
+                      (format nil "  touch ~A" quoted-fname))
+                (mapcar (lambda (chmod-cmd) (format nil "  ~A ~A" chmod-cmd quoted-fname))
+                        (mkfmode-script (<parsed-line>-fmode PARSED-LINE)))
+                (list "}")))))
 
 (declaim (ftype (function (integer) list) mkfmode-script))
 (defun mkfmode-script (FMODE)
@@ -1153,15 +1152,16 @@ only r,w bits for regular files and directories"
 ;; TODO force-fmode
 (defun mkfnames-script (PARSED-LINES &key (HINT-FORMAT nil) (NEW-ROOT nil) (STRIP 0) (FORCE-FMODE nil))
   "Prepares a shell script able to make all directories and files from parsed lines"
-  (let* ((parsed-line-items (dbg (format nil "!!!!!!mkfnames-script (hint-format: ~S)" HINT-FORMAT)
-                                 (cadr (get-detected-parsed-fnames PARSED-LINES
-                                                                   :hint-format HINT-FORMAT
-                                                                   :new-root NEW-ROOT
-                                                                   :strip STRIP))))
+  (let* ((parsed-line-items (cadr (get-detected-parsed-fnames PARSED-LINES
+                                                              :hint-format HINT-FORMAT
+                                                              :new-root NEW-ROOT
+                                                              :strip STRIP)))
          (commands (mapcan #'mkfname-script parsed-line-items))
          ;; optimization: remove duplicated commands (mkdir-s):
-         (uniq-commands (remove-duplicates commands :test #'equalp :from-end t))
-         (script (format nil "~{~A~^~%~}" uniq-commands)))
+         ;; (uniq-cmd (lambda (a b) (if (and (string= a "}") (string= b "}")) nil (equalp a b))))
+         ;; (uniq-commands (remove-duplicates commands :test uniq-cmd :from-end t))
+         ;; (script (format nil "~{~A~^~%~}" uniq-commands)))
+         (script (format nil "~{~A~^~%~}" commands)))
     script))
 
 
