@@ -1090,9 +1090,13 @@ result. Else - NIL"
 (defun mkfname-script (PARSED-LINE)
   (with-fname PARSED-LINE quoted-fname-parent quoted-fname
     :on-dir (when (fname-for-script quoted-fname)
-              (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
-                            quoted-fname
-                            quoted-fname)))
+              (append
+               (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
+                             quoted-fname
+                             quoted-fname))
+               ;; TODO command must be before || true
+               (mapcar (lambda (chmod-cmd) (concatenate 'string chmod-cmd " " quoted-fname))
+                       (mkfmode-script (<parsed-line>-fmode PARSED-LINE)))))
     :on-file (when (fname-for-script quoted-fname)
                (append
                 (when (and quoted-fname-parent
@@ -1104,7 +1108,27 @@ result. Else - NIL"
                                 quoted-fname-parent)))
                 (list (format nil "[ -f ~A ] || touch ~A || true"
                               quoted-fname
-                              quoted-fname))))))
+                              quoted-fname))
+                (mapcar (lambda (chmod-cmd) (concatenate 'string chmod-cmd " " quoted-fname))
+                       (mkfmode-script (<parsed-line>-fmode PARSED-LINE)))))))
+
+(declaim (ftype (function (integer) list) mkfmode-script))
+(defun mkfmode-script (FMODE)
+  "Returns a list of chmod-commands (without the path) for FMODE bits - takes into account
+only r,w bits for regular files and directories"
+  (setf FMODE (logand FMODE #xFFFF))
+  (when (member (logand FMODE #xF000) '(#x8000 #x4000))
+    (let (user-bits group-bits other-bits)
+      (when (/= 0 (logand #x0080 FMODE)) (push "w" user-bits))
+      (when (/= 0 (logand #x0100 FMODE)) (push "r" user-bits))
+      (when (/= 0 (logand #x0010 FMODE)) (push "w" group-bits))
+      (when (/= 0 (logand #x0020 FMODE)) (push "r" group-bits))
+      (when (/= 0 (logand #x0002 FMODE)) (push "w" other-bits))
+      (when (/= 0 (logand #x0004 FMODE)) (push "r" other-bits))
+      (when user-bits (setf user-bits (format nil "chmod u+~{~A~}" user-bits)))
+      (when group-bits (setf group-bits (format nil "chmod g+~{~A~}" group-bits)))
+      (when other-bits (setf other-bits (format nil "chmod o+~{~A~}" other-bits)))
+      (remove nil (list user-bits group-bits other-bits)))))
 
 ;; (defmacro with-fname (PARSED-LINE
 ;;                       QUOTED-FNAME-PARENT-VAR
@@ -1157,94 +1181,6 @@ result. Else - NIL"
 ;; TODO ../ in the beginning is also possible!!!
 ;; ending can be @, =, etc...
 
-(defun ls-1r-line-det (line)  ;; XXX Must be ran after `ls-1rl-line-det`
-  (let ((last-i (1- (length line)))
-        (uniq-features 0))
-    (when
-        (or
-         (when (string= "" (trim-any-whitespaces line)) (incf uniq-features))
-         (and (>= last-i 0)
-              ;; If there are spaces, the line must start with ' or " (else: not our case, T)
-              (implies (find #\Space line :test #'char=) (case (ch-at line 0) (#\' t) (#\" t)))
-              (case (ch-at line 0)
-                ((#\' #\" #\/ #\.) t)
-                (t (alphanumericp (ch-at line 0))))
-              (or (and (char= #\: (ch-at line last-i))
-                       (or (starts-with-p line "/")
-                           (starts-with-p line "./")
-                           (starts-with-p line "../")
-                           (starts-with-p line "'./")
-                           (starts-with-p line "\"./")
-                           (starts-with-p line "'../")
-                           (starts-with-p line "\"../")))
-                  ;; TODO windows?
-                  (char/= #\: (ch-at line last-i)))))
-      (list (cons :uniq-features uniq-features)))))
-
-
-(defun ls-1rl-line-det (line)
-  (let* ((last-i (1- (length line)))
-         (total-str "total ")
-         (file-delim (case (ch-at line last-i)
-                       (#\' #\')
-                       (#\" #\")
-                       (t #\Space)))
-         (attrs 0) (i 0) (filechars 0) (mtimechars 0)
-         (uniq-features 0))
-    (when
-        (and (> last-i 0)
-             (or (and (starts-with-p line total-str) (> last-i (length total-str))
-                      (digit-char-p (ch-at line (length total-str))))
-                 (and (char= #\: (ch-at line last-i))
-                      (or (starts-with-p line "/")
-                          (starts-with-p line "./")
-                          (starts-with-p line "../")
-                          (starts-with-p line "'./")
-                          (starts-with-p line "\"./")
-                          (starts-with-p line "'../")
-                          (starts-with-p line "\"../")))
-                 (when
-                     (and
-                      ;; 17 - minimum length with minimal column sizes and 1 space-delimiter:
-                      (>= last-i 17)
-                      (loop :for ch := (ch-at line i)
-                            :while (< i last-i)
-                            :while (or (char= ch #\-) (char= ch #\r) (char= ch #\w) (char= ch #\x)
-                                       (char= ch #\l) (char= ch #\b) (char= ch #\c) (char= ch #\p)
-                                       (char= ch #\s) (char= ch #\D) (char= ch #\P) (char= ch #\n)
-                                       (char= ch #\C) (char= ch #\M) (char= ch #\?) (char= ch #\S)
-                                       (char= ch #\t) (char= ch #\T) (char= ch #\d)
-                                       (char= ch #\+) (char= ch #\.) (char= ch #\@))
-                            :while (char/= ch #\Space)
-                            :do (incf attrs) (incf i)
-                            :finally (return (or (= attrs 10) (= attrs 11))))
-                      (char= (ch-at line i) #\Space)
-                      (loop :for j :downfrom last-i :to 0
-                            :for ch = (ch-at line j)
-                            :while (or (char/= ch file-delim) (= j last-i))
-                            :do (incf filechars)
-                            :finally
-                               (when
-                                   ;; Files with spaces or '/" are quoted with "...'..." and
-                                   ;; '..."...'. If file is not quoted, when we hit the space,
-                                   ;; we counted file size correctly. But when we hit '/", we
-                                   ;; counted the rightmost '/" and all file symbols, but not
-                                   ;; the leftmost '/", to do it, we have to do yet another
-                                   ;; iteration! So, when the exit-char hit by us is not space,
-                                   ;; it is some quote-symbol, so increment filechars to treat
-                                   ;; 'xxx' as 5 symbols, not 4
-                                   (char/= ch #\Space) (incf filechars))
-                               ;; (format t "'~A' (~C)~%" filechars file-delim)
-                               (return (> filechars 0)))
-                      (loop :for j :downfrom (- last-i filechars 1) :to 0
-                            :for ch = (ch-at line j)
-                            :while (or (digit-char-p ch) (char= ch #\:))
-                            :do (incf mtimechars) ;; last column of mtime is HH:MM or YYYY
-                            :finally (return (or (= mtimechars 4) (= mtimechars 5)))))
-                   (incf uniq-features 1))))
-      (list (cons :uniq-features uniq-features)))))
-
-
 (defun safe-assoc (pairs kw &KEY default)
   (let ((p (and (listp pairs)
                 (assoc kw (remove-if-not #'consp pairs)))))
@@ -1256,41 +1192,6 @@ result. Else - NIL"
   NIL or '((:uniq-features) <int>)...) or something else. If it cannot
   be got, then it returns `default` (NIL or passed)''"
   (safe-assoc det-result :uniq-features :default default))
-
-
-(defun det-format (funcs lines)
-  "Finds the function (among `funcs`, returned as an index) which is mostly satisfied
-  on `lines` (at least once! Else - returns nil)"
-  (let* ((aggregate-func-lines-results
-           (lambda (acc e)
-             (if e
-                 (list (1+ (car acc)) (+ (get-uniq-features e 0) (cadr acc)))
-                 acc)))
-         (funcs-over-lines-results (mapcar (lambda (fn) (mapcar fn lines)) funcs))
-         (funcs-results-0 (mapcar (lambda (lines-results)
-                                    (reduce aggregate-func-lines-results
-                                            lines-results
-                                            :initial-value (list 0 0)))
-                                  funcs-over-lines-results))
-         ;; just enumerated (0 ...) (1 ...)... :
-         (funcs-results-1 (loop :for e :in funcs-results-0
-                                :for i :from 0
-                                :collect (cons i e)))
-         (sorted-by-hits (sort funcs-results-1
-                               (lambda (a b)
-                                 (or (> (car a) (car b))
-                                     (and (= (car a) (car b))
-                                          (> (cadr a) (cadr b)))))
-                               :key #'cdr)))
-    (and funcs lines (caar sorted-by-hits))))
-
-
-  ;; (let* ((funcs-hits (mapcar (lambda (fn)
-  ;;                              (count-if fn lines))
-  ;;                            funcs))
-  ;;        (max-hits-num (apply #'max funcs-hits)))
-  ;;   (and (> max-hits-num 0)
-  ;;        (position max-hits-num funcs-hits))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Variables ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -2064,16 +1965,18 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
          (force-fmode (clingon:getopt cmd :fmode))
          (strip (clingon:getopt cmd :strip))
          (new-root (clingon:getopt cmd :prepend))
-         (pls (make-<parsed-lines>)))
+         (pls (make-<parsed-lines> :verbose (clingon:getopt cmd :verbose))))
     (loop :for line := (read-line *standard-input* nil nil)
           :while line
           :do
              (setf line (string-trim *unicode-whitespace-chars* line))
              (unless (emptyp line)
-               (format t "!!!!!!!!!!!!!!! STR='~A'~%" line)
+               ;; (format t "!!!!!!!!!!!!!!! STR='~A'~%" line)
                (parse-line pls line))
           :finally
-             (format t "PLS=~S~%" pls)
+             ;; (format t "PLS=~S~%" pls)
+             (when (<parsed-lines>-detected-format pls)
+               (format *error-output* "AUTODETECTED FORMAT: ~A~%" (<parsed-lines>-detected-format pls)))
              (format t "~A~%" (mkfnames-script pls
                                                :hint-format hint-fmt
                                                :new-root new-root
@@ -2095,6 +1998,12 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
     :short-name #\m
     :long-name "fmode"
     :key :fmode)
+   (clingon:make-option
+    :flag
+    :description "Verbose"
+    :short-name #\v
+    :long-name "verbose"
+    :key :verbose)
    (clingon:make-option
     :integer
     :description "Strip paths (N dirs up)"
@@ -2183,6 +2092,8 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
          (*path-sep* (det-*path-sep*))
          (argv (uiop:command-line-arguments)))
     (clingon:run (cli-main-cmd) argv)))
+
+;; (declaim (optimize (debug 3) (safety 3) (speed 0)))
 
 ;; (defun running-as-script-p ()
 ;;   (format t "!!! ~S~ script-name: ~A%" sb-ext:*posix-argv* (uiop:running-from-script-p))
