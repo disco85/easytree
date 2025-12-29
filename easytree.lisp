@@ -1157,11 +1157,17 @@ only r,w bits for regular files and directories"
                                                               :new-root NEW-ROOT
                                                               :strip STRIP)))
          (commands (mapcan #'mkfname-script parsed-line-items))
+         (numerated-commands (loop :for cmd :in commands
+                                   :for i :from 0
+                                   :collect (cons i cmd)))
          ;; optimization: remove duplicated commands (mkdir-s):
-         ;; (uniq-cmd (lambda (a b) (if (and (string= a "}") (string= b "}")) nil (equalp a b))))
-         ;; (uniq-commands (remove-duplicates commands :test uniq-cmd :from-end t))
-         ;; (script (format nil "~{~A~^~%~}" uniq-commands)))
-         (script (format nil "~{~A~^~%~}" commands)))
+         (uniq-cmd-p (lambda (a b)
+                       (cond ((and (string= "}" (cdr a)) (string= "}" (cdr b)))
+                              (= 1 (abs (- (car a) (car b)))))
+                             (t (equalp (cdr a) (cdr b))))))
+         (numerated-uniq-commands (remove-duplicates numerated-commands :test uniq-cmd-p :from-end t))
+         (uniq-commands (mapcar #'cdr numerated-uniq-commands))
+         (script (format nil "~{~A~^~%~}" uniq-commands)))
     script))
 
 
