@@ -110,7 +110,10 @@
 (defparameter *unicode-whitespace-string* (coerce *unicode-whitespace-chars* 'string))
 
 (defvar *dbg-cond* nil)
-(defun dbg (s &optional (x nil) &key (cond nil)) (when (or *dbg-cond* cond) (format t "~%*** TRACE[~A]: ~S~% ***~%" s x)) x)
+(defun dbg (s &optional (x nil) &key (cond nil))
+  (when (or *dbg-cond* cond)
+    (format t "~%*** TRACE[~A]: ~S~% ***~%" s x))
+  x)
 
 
 (defun implies (a b)
@@ -162,7 +165,7 @@
 
 ;; Special characters for Unix shells requiring escaping when THEY ARE INSIDE "LS" COMMAND OUTPUT
 ;; (so, no '.' among them):
-(defconstant +shell-special-characters+ "\\'`\"/!@#$%^&*()-_+={}[]|;:,<>? '}") ;; TODO check them in ls !
+(defconstant +shell-special-characters+ "\\'`\"/!@#$%^&*()-_+={}[]|;:,<>? '}") ;; TODO check them in ls ! _,- are redundant, etc!!!
 (defconstant +shell-string-special-characters+ "\"\\$`")
 
 (declaim (ftype (function (string) cons) extract-ls-fname))
@@ -423,10 +426,10 @@ CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12)))
   "Returns a list of the longest lists of accumulated <parsed-line> items
 in a form (<format> lines-list) TODO"  ;; TODO is the return type the same as before?
   (let* ((fmts-with-parsed-lines
-           (loop :for fmt :in +formats+
-                 :collect (list (get-parsed-lines-hits PARSED-LINES fmt)
-                                fmt  ;; (hits fmt (items*))
-                                (get-parsed-lines PARSED-LINES fmt))))
+           (loop for fmt in +formats+
+                 collect (list (get-parsed-lines-hits PARSED-LINES fmt)
+                               fmt  ;; (hits fmt (items*))
+                               (get-parsed-lines PARSED-LINES fmt))))
          (accumulated (reduce (lambda (acc x)
                                 (let ((k (car x)))
                                   (cond ((null acc)
@@ -521,17 +524,17 @@ It can be used together with (pop-until ...)
   "Split a POSIX-style path into components, ignoring empty parts. It can set (in car)
 the number of parts in parts-num cons-cell if it was supplied"
   (let* ((parts
-           (loop :with start := 0
-                 :for i :from 0 :to (length path)
-                 :when (or (= i (length path))
+           (loop with start = 0
+                 for i from 0 to (length path)
+                 when (or (= i (length path))
                            (char= (aref path i) #\/))
-                   :collect (subseq path start i)
-                   :and :do (setf start (1+ i))))
+                   collect (subseq path start i)
+                   and do (setf start (1+ i))))
          (end (when strip-end
-                (loop :with max-i := (1- (length parts))
-                      :for i :downfrom max-i :to 0
-                      :while (string= "" (nth i parts))
-                      :finally (when (and (>= i 0) (<= i max-i)) (return (1+ i)))))))
+                (loop with max-i := (1- (length parts))
+                      for i downfrom max-i to 0
+                      while (string= "" (nth i parts))
+                      finally (when (and (>= i 0) (<= i max-i)) (return (1+ i)))))))
     ;; (format t ">>> pies: ~S end: ~A~%" parts end)
     (when parts-num-supplied (setf (car parts-num) (length parts)))
     (if end (subseq parts 0 end) parts)))
@@ -599,21 +602,21 @@ the number of parts in parts-num cons-cell if it was supplied"
         (and (>= last-i 0)
              (char/= #\: (ch-at STR last-i)))
       ;; skip chars that are not alphanum (decoration lines, spaces):
-      (loop :initially (setf i 0)
-            :for ch := (ch-at STR i)
-            :while (< i last-i)
-            :until (or (alphanumericp ch) (char= #\. ch))
-            :do (incf i))
+      (loop initially (setf i 0)
+            for ch = (ch-at STR i)
+            while (< i last-i)
+            until (or (alphanumericp ch) (char= #\. ch))
+            do (incf i))
       ;; (dbg (format nil "!!!!!!!!!!!!!!!!!!!!!! i: ~A j: ~A last-i: ~A ch-at: ~A~%" i j last-i (ch-at STR last-i)))
       ;; take all alphanum of `fname` and stop on the first non-alphanum after `fname` (ignoring spaces):
-      (loop :initially (setf j last-i)
-            :for ch := (ch-at STR j)
-            :while (<= 0 j)
-            :until (or (alphanumericp ch) (char= #\. ch))
-            :do (decf j)
-            :finally (if (= j last-i)
-                         (setf j nil)
-                         (incf j))) ;; j=NIL|1st non-alphanum after fname
+      (loop initially (setf j last-i)
+            for ch = (ch-at STR j)
+            while (<= 0 j)
+            until (or (alphanumericp ch) (char= #\. ch))
+            do (decf j)
+            finally (if (= j last-i)
+                        (setf j nil)
+                        (incf j))) ;; j=NIL|1st non-alphanum after fname
       (if j
           (setf fname (subseq STR i j))  ;; w/o non-alphanum at the end
           (setf fname (subseq STR i)))
@@ -815,7 +818,7 @@ a 10-character string like this, nil is returned"
                                 (make-<parsed-line> :format :ls1r :fname fname :fmode 0 :fsobj fsobj)))
           ((<parsed-lines>-verbose PARSED-LINES)
            (setf (<parsed-lines>-ls1r-fail-msg PARSED-LINES)
-                 (format *error-output* "ERROR: cannot parse '~A': ~A~%" STR (or fail-msg "unknown error")))))
+                 (format *error-output* "ERROR [as LS1R]: cannot parse '~A': ~A~%" STR (or fail-msg "unknown error")))))
         ;; (dbg (format nil "!!!!!!!!!!!!! STR: ~A  fname: ~A~%~A~%" STR fname
         ;;              (maphash (lambda (k v) (format t "  ~A => ~A~%" k v)) state-fname-hashes)) nil :cond t)
         ))))
@@ -824,22 +827,23 @@ a 10-character string like this, nil is returned"
   "Matches a string \"total [0-9]+\" without regexp. If cannot match it, returns NIL"
   (let ((i 0) (total-str "total "))
     (and
-     (loop :initially (setf i 0)
-           :for ch1 :across total-str
-           :for ch2 :across STR
-           :do (incf i)
-           :while (char= ch1 ch2)
-           :finally (return (= i (length total-str))))
-     (loop :for ch :across (subseq STR i)
-           :do (incf i)
-           :while (digit-char-p ch)
-           :finally (return (and
-                             ;; at least one digit was found:
-                             (> i (length total-str))
-                             ;; ch is NIL if zero increments, so it's second condition.
-                             ;; it means we stopped on digit or whitespace:
-                             (or (digit-char-p ch) (find ch *unicode-whitespace-string*))))))))
+     (loop initially (setf i 0)
+           for ch1 across total-str
+           for ch2 across STR
+           do (incf i)
+           while (char= ch1 ch2)
+           finally (return (= i (length total-str))))
+     (loop for ch across (subseq STR i)
+           do (incf i)
+           while (digit-char-p ch)
+           finally (return (and
+                            ;; at least one digit was found:
+                            (> i (length total-str))
+                            ;; ch is NIL if zero increments, so it's second condition.
+                            ;; it means we stopped on digit or whitespace:
+                            (or (digit-char-p ch) (find ch *unicode-whitespace-string*))))))))
 
+;; TODO /bin/ls -1RlQ . | ./easytree script -v (Q for quote) - there are multiple }}}}
 (defun parse-line-as-ls1rl (PARSED-LINES STR)
   "Detects that the line looks as a line from `ls -1Rl`-like output. Returns
   NIL (not `ls -1Rl`-like line) or <parsed-line> modifying PARSED-LINES"
@@ -892,7 +896,7 @@ a 10-character string like this, nil is returned"
                                  (make-<parsed-line> :format :ls1rl :fname fname :fmode fmode-int :fsobj fsobj)))
            ((<parsed-lines>-verbose PARSED-LINES)
             (setf (<parsed-lines>-ls1rl-fail-msg PARSED-LINES)
-                  (format *error-output* "ERROR: cannot parse '~A': ~A~%" STR (or fail-msg "unknown error")))))
+                  (format *error-output* "ERROR [as LS1RL]: cannot parse '~A': ~A~%" STR (or fail-msg "unknown error")))))
          ;; (dbg (format nil "!!!!!!!!!!!!! STR: ~A  fname: ~A~%~A~%" STR fname
          ;;              (maphash (lambda (k v) (format t "  ~A => ~A~%" k v)) state-fname-hashes)) nil :cond t)
          ))
@@ -1091,7 +1095,7 @@ result. Else - NIL"
   (with-fname PARSED-LINE quoted-fname-parent quoted-fname
     :on-dir (when (fname-for-script quoted-fname)
               (append
-               (list (format nil "[ -d ~A ] || { " quoted-fname)
+               (list (format nil "[ -d ~A ] || {" quoted-fname)
                      (format nil "  mkdir -p ~A" quoted-fname))
                (mapcar (lambda (chmod-cmd) (format nil "  ~A ~A" chmod-cmd quoted-fname))
                        (mkfmode-script (<parsed-line>-fmode PARSED-LINE)))
@@ -1157,16 +1161,24 @@ only r,w bits for regular files and directories"
                                                               :new-root NEW-ROOT
                                                               :strip STRIP)))
          (commands (mapcan #'mkfname-script parsed-line-items))
-         (numerated-commands (loop :for cmd :in commands
-                                   :for i :from 0
-                                   :collect (cons i cmd)))
+         ;; (numerated-commands (loop :for cmd :in commands
+         ;;                           :for i :from 0
+         ;;                           :collect (cons i cmd)))
          ;; optimization: remove duplicated commands (mkdir-s):
-         (uniq-cmd-p (lambda (a b)
-                       (cond ((and (string= "}" (cdr a)) (string= "}" (cdr b)))
-                              (= 1 (abs (- (car a) (car b)))))
-                             (t (equalp (cdr a) (cdr b))))))
-         (numerated-uniq-commands (remove-duplicates numerated-commands :test uniq-cmd-p :from-end t))
-         (uniq-commands (mapcar #'cdr numerated-uniq-commands))
+         ;; (uniq-cmd-p (lambda (a b)
+         ;;               (cond ((and (string= "}" (cdr a)) (string= "}" (cdr b)))
+         ;;                      (= 1 (abs (- (car a) (car b)))))
+         ;;                     (t (equalp (cdr a) (cdr b))))))
+         ;; (numerated-uniq-commands (remove-duplicates numerated-commands :test uniq-cmd-p :from-end t))
+         ;; (uniq-commands (mapcar #'cdr numerated-uniq-commands))
+         (uniq-cmd-p
+           (lambda (a b)
+             (if (and (string= a "}") (string= b "}")) nil (string= a b))))
+         (uniq-commands (loop for cmd in (remove-duplicates commands :test uniq-cmd-p :from-end t)
+                              with prev = nil
+                              unless (and prev (string= prev "}") (string= cmd "}"))
+                                collect cmd into out and do (setf prev cmd)
+                              finally (return out)))
          (script (format nil "~{~A~^~%~}" uniq-commands)))
     script))
 
@@ -1755,13 +1767,25 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      (<parsed-lines>-detected-format pls)))))
 
 (5am:test mkfnames-script--test1
-          (5am:is (equal
-                   "[ -d 'etc' ] || mkdir -p 'etc' || true
-[ -d 'etc/dir' ] || mkdir -p 'etc/dir' || true
-[ -f 'etc/dir/file '\\'' 1' ] || touch 'etc/dir/file '\\'' 1' || true
-[ -f 'etc/dir/file-2' ] || touch 'etc/dir/file-2' || true
-[ -f 'etc/file-3' ] || touch 'etc/file-3' || true
-[ -d 'tmp' ] || mkdir -p 'tmp' || true"
+  (5am:is (equal
+"[ -d 'etc' ] || {
+  mkdir -p 'etc'
+}
+[ -d 'etc/dir' ] || {
+  mkdir -p 'etc/dir'
+}
+[ -f 'etc/dir/file '\\'' 1' ] || {
+  touch 'etc/dir/file '\\'' 1'
+}
+[ -f 'etc/dir/file-2' ] || {
+  touch 'etc/dir/file-2'
+}
+[ -f 'etc/file-3' ] || {
+  touch 'etc/file-3'
+}
+[ -d 'tmp' ] || {
+  mkdir -p 'tmp'
+}"
                    (let (;;(*dbg-cond* t)
                          (pls (make-<parsed-lines>)))
                      (parse-line pls "etc")
@@ -1972,9 +1996,9 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
          (strip (clingon:getopt cmd :strip))
          (new-root (clingon:getopt cmd :prepend))
          (pls (make-<parsed-lines> :verbose (clingon:getopt cmd :verbose))))
-    (loop :for line := (read-line *standard-input* nil nil)
-          :while line
-          :do
+    (loop for line = (read-line *standard-input* nil nil)
+          while line
+          do
              (setf line (string-trim *unicode-whitespace-chars* line))
              (unless (emptyp line)
                ;; (format t "!!!!!!!!!!!!!!! STR='~A'~%" line)
