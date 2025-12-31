@@ -9,6 +9,8 @@
 ;; #.(unless (find-package :ql)
 ;;     (load (merge-pathnames "quicklisp/setup.lisp"
 ;;                            (user-homedir-pathname))))
+(declaim (optimize (debug 3) (safety 3) (speed 0)))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (load (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname)))
   (ql:quickload '(clingon fiveam uiop)))
@@ -351,6 +353,7 @@ signle quotes). In general, shell paths look:
   (dir-from-final-slash t :type boolean)
   (detected-format nil :type (or null <format>))
   (verbose nil :type boolean)  ;; TODO add it to parse-* funcs
+  (dry nil :type boolean) ;; dry mode (do nothing)
   (tree-fail-msg nil :type (or null string)) ;; last fail message of this format
   (find-fail-msg nil :type (or null string)) ;; last fail message of this format
   (ls1r-fail-msg nil :type (or null string)) ;; last fail message of this format
@@ -1026,7 +1029,54 @@ result. Else - NIL"
   `(let ((,VAR ,VAL))
      (when ,VAR ,@BODY)))
 
-(defmacro with-fname (PARSED-LINE
+(defmacro with-fname (PARSED-LINE &rest args)
+  (let (on-dir
+        on-file
+        current
+        quoted-fname-parent-var
+        quoted-fname-var
+        fname-parent-var
+        fname-var
+        (g-fname (gensym "FNAME-"))
+        (g-quote-path (gensym "QUOTE-PATH-")))
+    (dolist (form args)
+      (cond
+        ((eql form :on-dir)                     (setf current 'on-dir))
+        ((eql form :on-file)                    (setf current 'on-file))
+        ((eql form :quoted-fname-parent-var)    (setf current 'quoted-fname-parent-var))
+        ((eql form :quoted-fname-var)           (setf current 'quoted-fname-var))
+        ((eql form :fname-parent-var)           (setf current 'fname-parent-var))
+        ((eql form :fname-var)                  (setf current 'fname-var))
+        ((eql current 'on-dir)                  (push form on-dir))
+        ((eql current 'on-file)                 (push form on-file))
+        ((eql current 'quoted-fname-parent-var) (setf quoted-fname-parent-var form))
+        ((eql current 'quoted-fname-var)        (setf quoted-fname-var form))
+        ((eql current 'fname-parent-var)        (setf fname-parent-var form))
+        ((eql current 'fname-var)               (setf fname-var form))
+        (t (error "WITH-FNAME: unexpected form ~S" form))))
+    (unless on-dir (error "WITH-FNAME: missing :on-dir body"))
+    (unless on-file (error "WITH-FNAME: missing :on-file body"))
+    `(let* ,(remove nil
+                    `((,g-quote-path
+                       (lambda (f) (format nil "'~A'" (replace-all-occurrences f "'" "'\\''"))))
+                       (,g-fname (<parsed-line>-fname ,PARSED-LINE))
+                      ,(when fname-parent-var `(,fname-parent-var
+                                                (when ,g-fname (parent-path ,g-fname))))
+                      ,(when fname-var `(,fname-var ,g-fname))
+                      ,(when quoted-fname-parent-var `(,quoted-fname-parent-var
+                                                       (when ,g-fname
+                                                         (funcall ,g-quote-path (parent-path ,g-fname)))))
+                      ,(when quoted-fname-var `(,quoted-fname-var
+                                                (when ,g-fname
+                                                  (funcall ,g-quote-path ,g-fname))))))
+       (when (or ,quoted-fname-var ,fname-var)
+         (case (<parsed-line>-fsobj ,PARSED-LINE)
+           (:dir
+            (progn ,@(nreverse on-dir)))
+           (:file
+            (progn ,@(nreverse on-file))))))))
+
+(defmacro with-fname1 (PARSED-LINE
                       QUOTED-FNAME-PARENT-VAR
                       QUOTED-FNAME-VAR
                       &body body)
@@ -1067,22 +1117,59 @@ result. Else - NIL"
                             :direction :output
                             :if-does-not-exist :create))))
 
-(defun mkfname (PARSED-LINE)
-  (with-fname PARSED-LINE quoted-fname-parent quoted-fname
-    :on-dir (let ((quoted-fname1 (pathname quoted-fname)))
-              (unless (uiop:directory-exists-p quoted-fname1)
-                (ensure-directories-exist quoted-fname1)
-                #|(uiop:run-program `("chmod" "755" ,quoted-fname1))|#))
-    :on-file (let ((quoted-fname-parent1 (pathname quoted-fname-parent))
-                   (quoted-fname1 (pathname quoted-fname)))
-              (unless (uiop:directory-exists-p quoted-fname-parent1)
-                (ensure-directories-exist quoted-fname-parent1)
-                (ensure-file-exists quoted-fname1)
-                #|(uiop:run-program `("chmod" "755" ,quoted-fname1))|#)))) ;; TODO implement setting of fmode!
+(defun do-fakable-action (FAKE-FLAG MSG ACTION &rest ARGS)
+  (if FAKE-FLAG
+      (format *error-output* "Immitation of ~A~%" MSG)
+      (handler-case
+          (apply ACTION ARGS)
+        (error (e) (format *error-output* "ERROR while ~A: ~A~%" MSG e)))))
 
-(defun mkfnames (PARSED-LINE-ITEMS)
+(defun mkfname (FAKE-FLAG FORCE-FMODE PARSED-LINE)
+  "Makes fname (ie creates FS entry from it) - directory of a file"
+  (with-fname PARSED-LINE :fname-parent-var fname-parent :fname-var fname
+    :on-dir (let ((fname1 (pathname fname))
+                  (chmod-cmds (mapcar (lambda (chmod-cmd) (format nil "~A ~A" chmod-cmd fname))
+                                      (mkfmode-script (<parsed-line>-fmode PARSED-LINE)))))
+              (unless (uiop:directory-exists-p fname1)
+                (do-fakable-action
+                  FAKE-FLAG
+                  (format nil "create directory ~A" fname1)
+                  #'ensure-directories-exist fname1)
+                (when FORCE-FMODE
+                  (dolist (chmod-cmd chmod-cmds)
+                    (do-fakable-action
+                      FAKE-FLAG
+                      (format nil "~A" chmod-cmd)
+                      #'uiop:run-program chmod-cmd)))))
+    :on-file (let ((fname-parent1 (pathname fname-parent))
+                   (fname1 (pathname fname))
+                   (chmod-cmds (mapcar (lambda (chmod-cmd) (format nil "~A ~A" chmod-cmd fname))
+                                       (mkfmode-script (<parsed-line>-fmode PARSED-LINE)))))
+               (unless (uiop:directory-exists-p fname-parent1)
+                 (do-fakable-action
+                   FAKE-FLAG
+                   (format nil "create directory ~A" fname-parent1)
+                   #'ensure-directories-exist fname-parent1))
+               (do-fakable-action
+                 FAKE-FLAG
+                 (format nil "create file ~A" fname1)
+                 #'ensure-file-exists
+                 fname1)
+               (when FORCE-FMODE
+                 (dolist (chmod-cmd chmod-cmds)
+                   (do-fakable-action
+                     FAKE-FLAG
+                     (format nil "~A" chmod-cmd)
+                     #'uiop:run-program chmod-cmd))))))
+
+(defun mkfnames (PARSED-LINES &key (HINT-FORMAT nil) (NEW-ROOT nil) (STRIP 0) (FORCE-FMODE nil))
   "Makes directories and files from parsed lines"
-  (dolist (parsed-line PARSED-LINE-ITEMS) (mkfname parsed-line)))
+  (let* ((parsed-line-items (cadr (get-detected-parsed-fnames PARSED-LINES
+                                                              :hint-format HINT-FORMAT
+                                                              :new-root NEW-ROOT
+                                                              :strip STRIP)))
+         (fake-flag (<parsed-lines>-dry PARSED-LINES)))
+    (dolist (parsed-line parsed-line-items) (mkfname fake-flag FORCE-FMODE parsed-line))))
 
 (defconstant +non-script-fnames+ '("'.'" "'..'" "." ".."))
 
@@ -1090,15 +1177,16 @@ result. Else - NIL"
   "Returns T if FNAME is good for script (no reason to do it for . or ..)"
   (not (member FNAME +non-script-fnames+ :test #'string=)))
 
-(declaim (ftype (function (<parsed-line>) list) mkfname-script))
-(defun mkfname-script (PARSED-LINE)
-  (with-fname PARSED-LINE quoted-fname-parent quoted-fname
+(declaim (ftype (function (<parsed-line> boolean) list) mkfname-script))
+(defun mkfname-script (PARSED-LINE FORCE-FMODE)
+  (with-fname PARSED-LINE :quoted-fname-parent-var quoted-fname-parent :quoted-fname-var quoted-fname
     :on-dir (when (fname-for-script quoted-fname)
               (append
                (list (format nil "[ -d ~A ] || {" quoted-fname)
                      (format nil "  mkdir -p ~A" quoted-fname))
-               (mapcar (lambda (chmod-cmd) (format nil "  ~A ~A" chmod-cmd quoted-fname))
-                       (mkfmode-script (<parsed-line>-fmode PARSED-LINE)))
+               (when FORCE-FMODE
+                 (mapcar (lambda (chmod-cmd) (format nil "  ~A ~A" chmod-cmd quoted-fname))
+                         (mkfmode-script (<parsed-line>-fmode PARSED-LINE))))
                (list "}")))
     :on-file (when (fname-for-script quoted-fname)
                (append
@@ -1111,8 +1199,9 @@ result. Else - NIL"
                         "}"))
                 (list (format nil "[ -f ~A ] || {" quoted-fname)
                       (format nil "  touch ~A" quoted-fname))
-                (mapcar (lambda (chmod-cmd) (format nil "  ~A ~A" chmod-cmd quoted-fname))
-                        (mkfmode-script (<parsed-line>-fmode PARSED-LINE)))
+                (when FORCE-FMODE
+                  (mapcar (lambda (chmod-cmd) (format nil "  ~A ~A" chmod-cmd quoted-fname))
+                          (mkfmode-script (<parsed-line>-fmode PARSED-LINE))))
                 (list "}")))))
 
 (declaim (ftype (function (integer) list) mkfmode-script))
@@ -1133,25 +1222,6 @@ only r,w bits for regular files and directories"
       (when other-bits (setf other-bits (format nil "chmod o+~{~A~}" other-bits)))
       (remove nil (list user-bits group-bits other-bits)))))
 
-;; (defmacro with-fname (PARSED-LINE
-;;                       QUOTED-FNAME-PARENT-VAR
-;;                       QUOTED-FNAME-VAR
-;;                       &body body)
-;;   (let ((on-dir nil)
-;;         (on-file nil)
-;;         (current nil)
-;;         (g-fname (gensym "FNAME-"))
-;;         (g-quote-path (gensym "QUOTE-PATH-")))
-;;     (dolist (form body)
-;;       (cond
-;;         ((eql form :on-dir)     (setf current 'on-dir))
-;;         ((eql form :on-file)    (setf current 'on-file))
-;;         ((eql current 'on-dir)  (push form on-dir))
-;;         ((eql current 'on-file) (push form on-file))
-;;         (t (error "WITH-FNAME: unexpected form ~S" form))))
-;;     (unless on-dir (error "WITH-FNAME: missing :on-dir body"))
-;;     (unless on-file (error "WITH-FNAME: missing :on-file body"))
-;;     `(let* ((,g-quote-path 0)))))
 
 ;; TODO force-fmode
 (defun mkfnames-script (PARSED-LINES &key (HINT-FORMAT nil) (NEW-ROOT nil) (STRIP 0) (FORCE-FMODE nil))
@@ -1160,17 +1230,8 @@ only r,w bits for regular files and directories"
                                                               :hint-format HINT-FORMAT
                                                               :new-root NEW-ROOT
                                                               :strip STRIP)))
-         (commands (mapcan #'mkfname-script parsed-line-items))
-         ;; (numerated-commands (loop :for cmd :in commands
-         ;;                           :for i :from 0
-         ;;                           :collect (cons i cmd)))
-         ;; optimization: remove duplicated commands (mkdir-s):
-         ;; (uniq-cmd-p (lambda (a b)
-         ;;               (cond ((and (string= "}" (cdr a)) (string= "}" (cdr b)))
-         ;;                      (= 1 (abs (- (car a) (car b)))))
-         ;;                     (t (equalp (cdr a) (cdr b))))))
-         ;; (numerated-uniq-commands (remove-duplicates numerated-commands :test uniq-cmd-p :from-end t))
-         ;; (uniq-commands (mapcar #'cdr numerated-uniq-commands))
+         (commands (mapcan (lambda (parsed-line) (mkfname-script parsed-line FORCE-FMODE))
+                           parsed-line-items))
          (uniq-cmd-p
            (lambda (a b)
              (if (and (string= a "}") (string= b "}")) nil (string= a b))))
@@ -1796,6 +1857,36 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      (parse-line pls "tmp/")
                      (mkfnames-script pls)))))
 
+(5am:test mkfnames-script--test2
+  (5am:is (equal
+"[ -d 'etc' ] || {
+  mkdir -p 'etc'
+}
+[ -d 'etc/dir' ] || {
+  mkdir -p 'etc/dir'
+}
+[ -f 'etc/dir/file '\\'' 1' ] || {
+  touch 'etc/dir/file '\\'' 1'
+}
+[ -f 'etc/dir/file-2' ] || {
+  touch 'etc/dir/file-2'
+}
+[ -f 'etc/file-3' ] || {
+  touch 'etc/file-3'
+}
+[ -d 'tmp' ] || {
+  mkdir -p 'tmp'
+}"
+                   (let (;;(*dbg-cond* t)
+                         (pls (make-<parsed-lines>)))
+                     (parse-line pls "etc")
+                     (parse-line pls "    dir/")
+                     (parse-line pls "          file ' 1")
+                     (parse-line pls "          file-2")
+                     (parse-line pls "    file-3")
+                     (parse-line pls "tmp/")
+                     (mkfnames-script pls :hint-format :TREE)))))
+
 (5am:test extract-ls-fname--test1
           (5am:is (equal
                    '(fail . "empty path")
@@ -1990,7 +2081,6 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
 
 (defun cli-script-cmd-handler (cmd)
   (declare (ignorable cmd))
-  ;; (trace parse-line)
   (let* ((hint-fmt (cli-kw-getopt cmd :from))
          (force-fmode (clingon:getopt cmd :fmode))
          (strip (clingon:getopt cmd :strip))
@@ -2001,7 +2091,6 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
           do
              (setf line (string-trim *unicode-whitespace-chars* line))
              (unless (emptyp line)
-               ;; (format t "!!!!!!!!!!!!!!! STR='~A'~%" line)
                (parse-line pls line))
           :finally
              ;; (format t "PLS=~S~%" pls)
@@ -2012,6 +2101,31 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                                                :new-root new-root
                                                :strip strip
                                                :force-fmode force-fmode)))))
+
+(defun cli-make-cmd-handler (cmd)
+  (declare (ignorable cmd))
+  (let* ((hint-fmt (cli-kw-getopt cmd :from))
+         (force-fmode (clingon:getopt cmd :fmode))
+         (strip (clingon:getopt cmd :strip))
+         (dry (clingon:getopt cmd :dry))
+         (verbose (clingon:getopt cmd :verbose))
+         (new-root (clingon:getopt cmd :prepend))
+         (pls (make-<parsed-lines> :verbose verbose :dry dry)))
+    (loop for line = (read-line *standard-input* nil nil)
+          while line
+          do
+             (setf line (string-trim *unicode-whitespace-chars* line))
+             (unless (emptyp line)
+               (parse-line pls line))
+          :finally
+             ;; (format t "PLS=~S~%" pls)
+             (when (<parsed-lines>-detected-format pls)
+               (format *error-output* "AUTODETECTED FORMAT: ~A~%" (<parsed-lines>-detected-format pls)))
+             (format t "~A~%" (mkfnames pls
+                                        :hint-format hint-fmt
+                                        :new-root new-root
+                                        :strip strip
+                                        :force-fmode force-fmode)))))
 
 (defun cli-script-cmd-opts ()
   (list
@@ -2048,6 +2162,47 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
     :long-name "prepend"
     :key :prepend)))
 
+(defun cli-make-cmd-opts ()
+  (list
+   (clingon:make-option
+    :choice
+    :description "Force input format when it's ambiguous"
+    :short-name #\f
+    :long-name "from"
+    :key :from
+    :items +formats+)
+   (clingon:make-option
+    :flag
+    :description "Set permissions (file mode)"
+    :short-name #\m
+    :long-name "fmode"
+    :key :fmode)
+   (clingon:make-option
+    :flag
+    :description "Verbose"
+    :short-name #\v
+    :long-name "verbose"
+    :key :verbose)
+   (clingon:make-option
+    :flag
+    :description "Dry run"
+    :short-name #\d
+    :long-name "dry"
+    :key :dry)
+   (clingon:make-option
+    :integer
+    :description "Strip paths (N dirs up)"
+    :short-name #\s
+    :long-name "strip"
+    :initial-value 0
+    :key :strip)
+   (clingon:make-option
+    :string
+    :description "Prepend paths with common directory-prefix"
+    :short-name #\p
+    :long-name "prepend"
+    :key :prepend)))
+
 (defun cli-tests-cmd ()
   (clingon:make-command
    :name "tests"
@@ -2066,6 +2221,17 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
    :handler #'cli-script-cmd-handler
    :options (cli-script-cmd-opts)))
 
+(defun cli-make-cmd ()
+  (clingon:make-command
+   :name "make"
+   :usage "[-f FMT] -t FMT [-s N,DIR] [-p DIR]" ;; --strip DIR/<int> --rebase DIR ;; TODO
+   :examples '(("Convert from one format to another:" . "ls|convert -f LS -t TREE -")
+               ("Convert from unknown format to another:" . "tree|convert -t TREE -")
+               ("Convert from unknown format to another:" . "tree|convert -f AUTO -t FIND -"))
+   :description "Make directories and files"
+   :handler #'cli-make-cmd-handler
+   :options (cli-make-cmd-opts)))
+
 
 (defun cli-main-cmd ()
   (clingon:make-command
@@ -2074,7 +2240,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
    :version "0.1.0"
    :authors '("John Doe <john.doe@example.org>")
    :license "BSD 2-Clause"
-   :sub-commands (list (cli-script-cmd) (cli-tests-cmd))
+   :sub-commands (list (cli-script-cmd) (cli-make-cmd) (cli-tests-cmd))
    :handler (lambda (cmd)
               (format t "No known subcommand provided!~%~%")
               (clingon:print-usage cmd *standard-output*)
