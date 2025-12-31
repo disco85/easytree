@@ -159,6 +159,13 @@
          (subseq STR 1 (1- (length STR))))
         (t STR)))
 
+(defun ensure-directory-string (s)
+  "Adds (if there is no yet) ending '/'"
+  (if (and (plusp (length s))
+           (char= (char s (1- (length s))) #\/))
+      s
+      (concatenate 'string s "/")))
+
 ;; (defun reverse-string-in-place (s)
 ;;   (let ((len (length s)))
 ;;     (dotimes (i (floor len 2) s)
@@ -553,8 +560,11 @@ the number of parts in parts-num cons-cell if it was supplied"
 
 (defun parent-path (path)
   "Parent of some path (a -> . or a/b -> a)"
-  (let ((pos (position #\/ path :from-end t)))
-    (if pos (subseq path 0 pos) ".")))
+  (let* ((path1 (string-right-trim "/" path))
+         (pos (position #\/ path1 :from-end t)))
+    (if pos
+        (concatenate 'string (subseq path 0 pos) "/")
+        ".")))
 
 ;; This functions can produce duplicates of file entries (bcs input can contain them in a way,
 ;; when it is not easy to remove duplicates on the phase of parsing). When they will be used
@@ -1059,7 +1069,9 @@ result. Else - NIL"
     `(let* ,(remove nil
                     `((,g-quote-path
                        (lambda (f) (format nil "'~A'" (replace-all-occurrences f "'" "'\\''"))))
-                       (,g-fname (<parsed-line>-fname ,PARSED-LINE))
+                       (,g-fname (ecase (<parsed-line>-fsobj ,PARSED-LINE)
+                                   (:dir (ensure-directory-string (<parsed-line>-fname ,PARSED-LINE)))
+                                   (:file (<parsed-line>-fname ,PARSED-LINE))))
                       ,(when fname-parent-var `(,fname-parent-var
                                                 (when ,g-fname (parent-path ,g-fname))))
                       ,(when fname-var `(,fname-var ,g-fname))
@@ -1829,11 +1841,11 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
 
 (5am:test mkfnames-script--test1
   (5am:is (equal
-"[ -d 'etc' ] || {
-  mkdir -p 'etc'
+"[ -d 'etc/' ] || {
+  mkdir -p 'etc/'
 }
-[ -d 'etc/dir' ] || {
-  mkdir -p 'etc/dir'
+[ -d 'etc/dir/' ] || {
+  mkdir -p 'etc/dir/'
 }
 [ -f 'etc/dir/file '\\'' 1' ] || {
   touch 'etc/dir/file '\\'' 1'
@@ -1844,8 +1856,8 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
 [ -f 'etc/file-3' ] || {
   touch 'etc/file-3'
 }
-[ -d 'tmp' ] || {
-  mkdir -p 'tmp'
+[ -d 'tmp/' ] || {
+  mkdir -p 'tmp/'
 }"
                    (let (;;(*dbg-cond* t)
                          (pls (make-<parsed-lines>)))
@@ -1859,11 +1871,11 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
 
 (5am:test mkfnames-script--test2
   (5am:is (equal
-"[ -d 'etc' ] || {
-  mkdir -p 'etc'
+"[ -d 'etc/' ] || {
+  mkdir -p 'etc/'
 }
-[ -d 'etc/dir' ] || {
-  mkdir -p 'etc/dir'
+[ -d 'etc/dir/' ] || {
+  mkdir -p 'etc/dir/'
 }
 [ -f 'etc/dir/file '\\'' 1' ] || {
   touch 'etc/dir/file '\\'' 1'
@@ -1874,8 +1886,8 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
 [ -f 'etc/file-3' ] || {
   touch 'etc/file-3'
 }
-[ -d 'tmp' ] || {
-  mkdir -p 'tmp'
+[ -d 'tmp/' ] || {
+  mkdir -p 'tmp/'
 }"
                    (let (;;(*dbg-cond* t)
                          (pls (make-<parsed-lines>)))
