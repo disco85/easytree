@@ -1,5 +1,28 @@
-(load (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname)))
-(ql:quickload '(clingon fiveam uiop))
+;; Example of call (does not work at the moment):
+;;   sbcl --script ./easytree.lisp script -f TREE
+;; Worked:
+;;   ./build.sh easytree.lisp
+;; Then:
+;;   ./easytree --help
+
+
+;; #.(unless (find-package :ql)
+;;     (load (merge-pathnames "quicklisp/setup.lisp"
+;;                            (user-homedir-pathname))))
+(declaim (optimize (debug 3) (safety 3) (speed 0)))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (load (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname)))
+  (ql:quickload '(clingon fiveam uiop)))
+
+;; #.(load (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname)))
+;; (eval-when (:compile-toplevel :load-toplevel :execute)
+;;   (load (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname)))
+;;   (ql:quickload '(clingon fiveam uiop)))
+
+
+;; (load (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname)))
+;; (ql:quickload '(clingon fiveam uiop))
 
 ;; (progn ;;init forms
 ;;   (ros:ensure-asdf)
@@ -7,11 +30,64 @@
 ;;   )
 
 
-;; (defpackage :ros.script.easytree
-;;   (:use :cl))
-;; (in-package :ros.script.easytree)
+(defpackage :easytree
+  (:use :cl)
+  (:export :main))
+(in-package :easytree)
+
+;; Specification of a bit in strings like "-rw-r--r--":
+(defstruct <fmode-spec>
+  (pos 0 :type integer)
+  (char nil :type character)
+  (value nil :type integer)
+  (descr nil :type string))
+
+
+;; Bits specifications for "-rw-r--r--" string:
+(defparameter *fmode-bits* (make-array 10))
+;; Initialization of bits specifications for "-rw-r--r--" strings:
+(dotimes (i 10) (setf (aref *fmode-bits* i) (make-hash-table :test 'equal)))
+(defun defmode-in (VAR POS CHAR VALUE DESCR)
+  (when (and (>= POS 0) (< POS (length *fmode-bits*)))
+    (setf (gethash CHAR (aref VAR POS))
+          (make-<fmode-spec> :pos POS :char CHAR :value VALUE :descr DESCR))))
+
+;; Character positions 0-9 of "-rw-r--r--":
+(defmode-in *fmode-bits* 0 #\- #x8000 "regular file")
+(defmode-in *fmode-bits* 0 #\d #x4000 "directory")
+(defmode-in *fmode-bits* 0 #\l #xA000 "symbolic link")
+(defmode-in *fmode-bits* 0 #\c #x2000 "character device")
+(defmode-in *fmode-bits* 0 #\b #x6000 "block device")
+(defmode-in *fmode-bits* 0 #\p #x1000 "named pipe")
+(defmode-in *fmode-bits* 0 #\s #xC000 "socket")
+(defmode-in *fmode-bits* 1 #\r #x0100 "owner read")
+(defmode-in *fmode-bits* 1 #\- #x0000 "no owner read")
+(defmode-in *fmode-bits* 2 #\w #x0080 "owner write")
+(defmode-in *fmode-bits* 2 #\- #x0000 "no owner write")
+(defmode-in *fmode-bits* 3 #\x #x0040 "owner exec")
+(defmode-in *fmode-bits* 3 #\s #x0800 "setuid+exec")
+(defmode-in *fmode-bits* 3 #\S #x0800 "setuid+no exec")
+(defmode-in *fmode-bits* 3 #\- #x0000 "no owner exec")
+(defmode-in *fmode-bits* 4 #\r #x0020 "group read")
+(defmode-in *fmode-bits* 4 #\- #x0000 "no group read")
+(defmode-in *fmode-bits* 5 #\w #x0010 "group write")
+(defmode-in *fmode-bits* 5 #\- #x0000 "no group write")
+(defmode-in *fmode-bits* 6 #\x #x0008 "group exec")
+(defmode-in *fmode-bits* 6 #\s #x0400 "setgid+exec")
+(defmode-in *fmode-bits* 6 #\S #x0400 "setgid+no exec")
+(defmode-in *fmode-bits* 6 #\- #x0000 "no group exec")
+(defmode-in *fmode-bits* 7 #\r #x0004 "other read")
+(defmode-in *fmode-bits* 7 #\- #x0000 "no other read")
+(defmode-in *fmode-bits* 8 #\w #x0002 "other write")
+(defmode-in *fmode-bits* 8 #\- #x0000 "no other write")
+(defmode-in *fmode-bits* 9 #\x #x0001 "other exec")
+(defmode-in *fmode-bits* 9 #\t #x0200 "sticky+exec")
+(defmode-in *fmode-bits* 9 #\T #x0200 "sticky+no exec")
+(defmode-in *fmode-bits* 9 #\- #x0000 "no other exec")
+
 
 ;; (format t "!!!!!!!!!!!!!!!!!!!!!~A~%" (uiop:version))
+(defconstant +tree-decorations+ "├└-─+` ")
 
 (defparameter *unicode-whitespace-chars*
   '(#\Space #\Tab #\Newline #\Return
@@ -33,15 +109,18 @@
     #\Medium_mathematical_space; U+205F
     #\Ideographic_space))      ; U+3000
 
+(defparameter *unicode-whitespace-string* (coerce *unicode-whitespace-chars* 'string))
 
 (defvar *dbg-cond* nil)
-(defun dbg (s &optional (x nil) &key (cond nil)) (when (or *dbg-cond* cond) (format t "~%*** TRACE[~A]: ~S~% ***~%" s x)) x)
+(defun dbg (s &optional (x nil) &key (cond nil))
+  (when (or *dbg-cond* cond)
+    (format t "~%*** TRACE[~A]: ~S~% ***~%" s x))
+  x)
 
 
 (defun implies (a b)
   "Implication: a -> b"
   (or (not a) b))
-
 
 (defun starts-with-p (STRING PREFIX &key CASE-INSENSITIVE)
   "Check that `string` starts with `PREFIX`"
@@ -80,6 +159,13 @@
          (subseq STR 1 (1- (length STR))))
         (t STR)))
 
+(defun ensure-directory-string (s)
+  "Adds (if there is no yet) ending '/'"
+  (if (and (plusp (length s))
+           (char= (char s (1- (length s))) #\/))
+      s
+      (concatenate 'string s "/")))
+
 ;; (defun reverse-string-in-place (s)
 ;;   (let ((len (length s)))
 ;;     (dotimes (i (floor len 2) s)
@@ -88,7 +174,8 @@
 
 ;; Special characters for Unix shells requiring escaping when THEY ARE INSIDE "LS" COMMAND OUTPUT
 ;; (so, no '.' among them):
-(defconstant +shell-special-characters+ "\\'`\"/!@#$%^&*()-_+={}[]|;:,<>? '}") ;; TODO check them in ls !
+(defconstant +shell-special-characters+ "\\'`\"/!@#$%^&*()-_+={}[]|;:,<>? '}") ;; TODO check them in ls ! _,- are redundant, etc!!!
+;; (defconstant +shell-special-characters+ "\\\"")
 (defconstant +shell-string-special-characters+ "\"\\$`")
 
 (declaim (ftype (function (string) cons) extract-ls-fname))
@@ -273,7 +360,8 @@ signle quotes). In general, shell paths look:
   ;; (number 0 :type integer)
   (dir-from-final-slash t :type boolean)
   (detected-format nil :type (or null <format>))
-  (verbose nil :type boolean)  ;; TODO add it to parse-* funcs
+  (verbose nil :type boolean)
+  (dry nil :type boolean) ;; dry mode (do nothing)
   (tree-fail-msg nil :type (or null string)) ;; last fail message of this format
   (find-fail-msg nil :type (or null string)) ;; last fail message of this format
   (ls1r-fail-msg nil :type (or null string)) ;; last fail message of this format
@@ -347,12 +435,12 @@ CL-USER> (get-cons-with-longest-list '((1 2 3) (2 11 12)))
 (declaim (ftype (function (<parsed-lines>) list) get-most-parsed-lines))
 (defun get-most-parsed-lines (PARSED-LINES)
   "Returns a list of the longest lists of accumulated <parsed-line> items
-in a form (<format> . lines-list) TODO"  ;; TODO is the return type the same as before?
+in a form (<format> lines-list) TODO"  ;; TODO is the return type the same as before?
   (let* ((fmts-with-parsed-lines
-           (loop :for fmt :in +formats+
-                 :collect (list (get-parsed-lines-hits PARSED-LINES fmt)
-                                fmt
-                                (get-parsed-lines PARSED-LINES fmt))))
+           (loop for fmt in +formats+
+                 collect (list (get-parsed-lines-hits PARSED-LINES fmt)
+                               fmt  ;; (hits fmt (items*))
+                               (get-parsed-lines PARSED-LINES fmt))))
          (accumulated (reduce (lambda (acc x)
                                 (let ((k (car x)))
                                   (cond ((null acc)
@@ -447,17 +535,17 @@ It can be used together with (pop-until ...)
   "Split a POSIX-style path into components, ignoring empty parts. It can set (in car)
 the number of parts in parts-num cons-cell if it was supplied"
   (let* ((parts
-           (loop :with start := 0
-                 :for i :from 0 :to (length path)
-                 :when (or (= i (length path))
+           (loop with start = 0
+                 for i from 0 to (length path)
+                 when (or (= i (length path))
                            (char= (aref path i) #\/))
-                   :collect (subseq path start i)
-                   :and :do (setf start (1+ i))))
+                   collect (subseq path start i)
+                   and do (setf start (1+ i))))
          (end (when strip-end
-                (loop :with max-i := (1- (length parts))
-                      :for i :downfrom max-i :to 0
-                      :while (string= "" (nth i parts))
-                      :finally (when (and (>= i 0) (<= i max-i)) (return (1+ i)))))))
+                (loop with max-i := (1- (length parts))
+                      for i downfrom max-i to 0
+                      while (string= "" (nth i parts))
+                      finally (when (and (>= i 0) (<= i max-i)) (return (1+ i)))))))
     ;; (format t ">>> pies: ~S end: ~A~%" parts end)
     (when parts-num-supplied (setf (car parts-num) (length parts)))
     (if end (subseq parts 0 end) parts)))
@@ -473,8 +561,11 @@ the number of parts in parts-num cons-cell if it was supplied"
 
 (defun parent-path (path)
   "Parent of some path (a -> . or a/b -> a)"
-  (let ((pos (position #\/ path :from-end t)))
-    (if pos (subseq path 0 pos) ".")))
+  (let* ((path1 (string-right-trim "/" path))
+         (pos (position #\/ path1 :from-end t)))
+    (if pos
+        (concatenate 'string (subseq path 0 pos) "/")
+        ".")))
 
 ;; This functions can produce duplicates of file entries (bcs input can contain them in a way,
 ;; when it is not easy to remove duplicates on the phase of parsing). When they will be used
@@ -485,8 +576,38 @@ the number of parts in parts-num cons-cell if it was supplied"
 (declaim (ftype (function (<parsed-lines> string) (or null t)) parse-line-as-ls1r))
 (declaim (ftype (function (<parsed-lines> string) (or null t)) parse-line-as-ls1rl))
 
-;; TODO support /etc (currently I think / will not be collected as fname)
 (defun markup-line-as-tree (STR)
+  "Marks up STR possibly looking as a line from `tree`-like output. Returns
+  NIL (not `tree`-like line) or alist:
+'((fname . file-name) (fname-start . index-of-fname) (fname-stop . index-or-NIL))"
+  (let* ((last-i (1- (length STR)))
+         (closing-quote-pos (position #\" STR :from-end t))
+         (closing-quote-p closing-quote-pos)
+         (opening-quote-pos (position #\" STR))
+         (opening-quote-p (and opening-quote-pos (< opening-quote-pos last-i)))
+         (fmode-parsed (parse-fmode-str STR *fmode-bits*))
+         (quoted-p (and opening-quote-p closing-quote-p))
+         fname0 fname-but-end-spec-symbols fname-start unquoted-start fname-stop)
+    (when (and (>= last-i 0) ;; TODO avoid "'xyz'"
+               (char/= #\: (ch-at STR last-i))
+               (not fmode-parsed))
+      (if quoted-p
+                ;; file/dir it seems is quoted:
+                (setf unquoted-start (1+ opening-quote-pos)
+                      fname-start opening-quote-pos)
+                ;; not quoted, so walk while "- ", "└ ", "─ ", "- ", "+ ":
+                (setf unquoted-start (or (position-if-not (lambda (ch) (find ch +tree-decorations+)) STR) 0)
+                      fname-start unquoted-start))
+      (setf fname0 (string-right-trim *unicode-whitespace-string* (subseq STR (or unquoted-start fname-start))))
+      (when quoted-p (setf fname0 (string-right-trim "\"" fname0)))
+      (setf fname-but-end-spec-symbols (string-right-trim "/" fname0))
+      (setf fname-stop
+            (when (< (length fname-but-end-spec-symbols) (length fname0))
+              (+ fname-start (length fname-but-end-spec-symbols))))
+      (list (cons 'fname fname-but-end-spec-symbols) (cons 'fname-start fname-start) (cons 'fname-stop fname-stop)))))
+
+;; TODO support /etc (currently I think / will not be collected as fname)
+(defun markup-line-as-tree1 (STR)
   "Marks up STR possibly looking as a line from `tree`-like output. Returns
   NIL (not `tree`-like line) or alist:
 '((fname . file-name) (fname-start . index-of-fname) (fname-stop . index-or-NIL))"
@@ -495,21 +616,21 @@ the number of parts in parts-num cons-cell if it was supplied"
         (and (>= last-i 0)
              (char/= #\: (ch-at STR last-i)))
       ;; skip chars that are not alphanum (decoration lines, spaces):
-      (loop :initially (setf i 0)
-            :for ch := (ch-at STR i)
-            :while (< i last-i)
-            :until (alphanumericp ch)
-            :do (incf i))
+      (loop initially (setf i 0)
+            for ch = (ch-at STR i)
+            while (< i last-i)
+            until (or (alphanumericp ch) (char= #\. ch))
+            do (incf i))
       ;; (dbg (format nil "!!!!!!!!!!!!!!!!!!!!!! i: ~A j: ~A last-i: ~A ch-at: ~A~%" i j last-i (ch-at STR last-i)))
       ;; take all alphanum of `fname` and stop on the first non-alphanum after `fname` (ignoring spaces):
-      (loop :initially (setf j last-i)
-            :for ch := (ch-at STR j)
-            :while (<= 0 j)
-            :until (or (alphanumericp ch) (char= #\. ch))
-            :do (decf j)
-            :finally (if (= j last-i)
-                         (setf j nil)
-                         (incf j))) ;; j=NIL|1st non-alphanum after fname
+      (loop initially (setf j last-i)
+            for ch = (ch-at STR j)
+            while (<= 0 j)
+            until (or (alphanumericp ch) (char= #\. ch))
+            do (decf j)
+            finally (if (= j last-i)
+                        (setf j nil)
+                        (incf j))) ;; j=NIL|1st non-alphanum after fname
       (if j
           (setf fname (subseq STR i j))  ;; w/o non-alphanum at the end
           (setf fname (subseq STR i)))
@@ -608,15 +729,18 @@ tree command MUST BE RAN WITH --noreport option!"
          (lines (get-parsed-lines PARSED-LINES :find))
          (last-parsed-line (car (last lines)))
          (last-parsed-line-fname (when last-parsed-line (<parsed-line>-fname last-parsed-line)))
-         (unquoted-str (unquote-str STR)))
+         (unquoted-str0 (unquote-str STR))
+         (unquoted-str (when unquoted-str0 (string-right-trim "/" unquoted-str0)))
+         (fmode-parsed (parse-fmode-str STR *fmode-bits*)))
     (when
         (and (>= last-i 0)
              ;; it should not end with ':':
-             (char/= #\: (ch-at STR last-i)))
-      (when (or (starts-with-p unquoted-str "/")
-                (starts-with-p unquoted-str "./")
-                (starts-with-p unquoted-str "../"))
+             (char/= #\: (ch-at STR last-i))
+             (not fmode-parsed))
+      (when (not (or (starts-with-p unquoted-str "├")
+                     (starts-with-p unquoted-str "+-")))
         (setf fname unquoted-str))
+      ;; (setf fname unquoted-str)
       (when (not (emptyp fname))
         (when (and last-parsed-line (starts-with-p fname last-parsed-line-fname))
           ;; Last parsed line  (of :find format) is prefix of mine, then it was a dir,
@@ -629,57 +753,6 @@ tree command MUST BE RAN WITH --noreport option!"
         (incf (<parsed-lines>-find-hits PARSED-LINES))
         (add-to-parsed-lines PARSED-LINES :find
                              (make-<parsed-line> :format :find :fname fname :fmode 0 :fsobj :file))))))
-
-
-;; Specification of a bit in strings like "-rw-r--r--":
-(defstruct <fmode-spec>
-  (pos 0 :type integer)
-  (char nil :type character)
-  (value nil :type integer)
-  (descr nil :type string))
-
-
-;; Bits specifications for "-rw-r--r--" string:
-(defparameter *fmode-bits* (make-array 10))
-;; Initialization of bits specifications for "-rw-r--r--" strings:
-(dotimes (i 10) (setf (aref *fmode-bits* i) (make-hash-table :test 'equal)))
-(defun defmode-in (VAR POS CHAR VALUE DESCR)
-  (when (and (>= POS 0) (< POS (length *fmode-bits*)))
-    (setf (gethash CHAR (aref VAR POS))
-          (make-<fmode-spec> :pos POS :char CHAR :value VALUE :descr DESCR))))
-
-;; Character positions 0-9 of "-rw-r--r--":
-(defmode-in *fmode-bits* 0 #\- #x8000 "regular file")
-(defmode-in *fmode-bits* 0 #\d #x4000 "directory")
-(defmode-in *fmode-bits* 0 #\l #xA000 "symbolic link")
-(defmode-in *fmode-bits* 0 #\c #x2000 "character device")
-(defmode-in *fmode-bits* 0 #\b #x6000 "block device")
-(defmode-in *fmode-bits* 0 #\p #x1000 "named pipe")
-(defmode-in *fmode-bits* 0 #\s #xC000 "socket")
-(defmode-in *fmode-bits* 1 #\r #x0100 "owner read")
-(defmode-in *fmode-bits* 1 #\- #x0000 "no owner read")
-(defmode-in *fmode-bits* 2 #\w #x0080 "owner write")
-(defmode-in *fmode-bits* 2 #\- #x0000 "no owner write")
-(defmode-in *fmode-bits* 3 #\x #x0040 "owner exec")
-(defmode-in *fmode-bits* 3 #\s #x0800 "setuid+exec")
-(defmode-in *fmode-bits* 3 #\S #x0800 "setuid+no exec")
-(defmode-in *fmode-bits* 3 #\- #x0000 "no owner exec")
-(defmode-in *fmode-bits* 4 #\r #x0020 "group read")
-(defmode-in *fmode-bits* 4 #\- #x0000 "no group read")
-(defmode-in *fmode-bits* 5 #\w #x0010 "group write")
-(defmode-in *fmode-bits* 5 #\- #x0000 "no group write")
-(defmode-in *fmode-bits* 6 #\x #x0008 "group exec")
-(defmode-in *fmode-bits* 6 #\s #x0400 "setgid+exec")
-(defmode-in *fmode-bits* 6 #\S #x0400 "setgid+no exec")
-(defmode-in *fmode-bits* 6 #\- #x0000 "no group exec")
-(defmode-in *fmode-bits* 7 #\r #x0004 "other read")
-(defmode-in *fmode-bits* 7 #\- #x0000 "no other read")
-(defmode-in *fmode-bits* 8 #\w #x0002 "other write")
-(defmode-in *fmode-bits* 8 #\- #x0000 "no other write")
-(defmode-in *fmode-bits* 9 #\x #x0001 "other exec")
-(defmode-in *fmode-bits* 9 #\t #x0200 "sticky+exec")
-(defmode-in *fmode-bits* 9 #\T #x0200 "sticky+no exec")
-(defmode-in *fmode-bits* 9 #\- #x0000 "no other exec")
 
 (declaim (ftype (function (string array) (or null integer)) parse-fmode-str))
 (defun parse-fmode-str (STR FMODE-SPECS)
@@ -759,7 +832,7 @@ a 10-character string like this, nil is returned"
                                 (make-<parsed-line> :format :ls1r :fname fname :fmode 0 :fsobj fsobj)))
           ((<parsed-lines>-verbose PARSED-LINES)
            (setf (<parsed-lines>-ls1r-fail-msg PARSED-LINES)
-                 (format t "ERROR: cannot parse '~A': ~A~%" STR (or fail-msg "unknown error")))))
+                 (format *error-output* "ERROR [as LS1R]: cannot parse '~A': ~A~%" STR (or fail-msg "unknown error")))))
         ;; (dbg (format nil "!!!!!!!!!!!!! STR: ~A  fname: ~A~%~A~%" STR fname
         ;;              (maphash (lambda (k v) (format t "  ~A => ~A~%" k v)) state-fname-hashes)) nil :cond t)
         ))))
@@ -768,22 +841,23 @@ a 10-character string like this, nil is returned"
   "Matches a string \"total [0-9]+\" without regexp. If cannot match it, returns NIL"
   (let ((i 0) (total-str "total "))
     (and
-     (loop :initially (setf i 0)
-           :for ch1 :across total-str
-           :for ch2 :across STR
-           :do (incf i)
-           :while (char= ch1 ch2)
-           :finally (return (= i (length total-str))))
-     (loop :for ch :across (subseq STR i)
-           :do (incf i)
-           :while (digit-char-p ch)
-           :finally (return (and
-                             ;; at least one digit was found:
-                             (> i (length total-str))
-                             ;; ch is NIL if zero increments, so it's second condition.
-                             ;; it means we stopped on digit or whitespace:
-                             (or (digit-char-p ch) (find ch "\r\n\t "))))))))
+     (loop initially (setf i 0)
+           for ch1 across total-str
+           for ch2 across STR
+           do (incf i)
+           while (char= ch1 ch2)
+           finally (return (= i (length total-str))))
+     (loop for ch across (subseq STR i)
+           do (incf i)
+           while (digit-char-p ch)
+           finally (return (and
+                            ;; at least one digit was found:
+                            (> i (length total-str))
+                            ;; ch is NIL if zero increments, so it's second condition.
+                            ;; it means we stopped on digit or whitespace:
+                            (or (digit-char-p ch) (find ch *unicode-whitespace-string*))))))))
 
+;; TODO /bin/ls -1RlQ . | ./easytree script -v (Q for quote) - there are multiple }}}}
 (defun parse-line-as-ls1rl (PARSED-LINES STR)
   "Detects that the line looks as a line from `ls -1Rl`-like output. Returns
   NIL (not `ls -1Rl`-like line) or <parsed-line> modifying PARSED-LINES"
@@ -836,7 +910,7 @@ a 10-character string like this, nil is returned"
                                  (make-<parsed-line> :format :ls1rl :fname fname :fmode fmode-int :fsobj fsobj)))
            ((<parsed-lines>-verbose PARSED-LINES)
             (setf (<parsed-lines>-ls1rl-fail-msg PARSED-LINES)
-                  (format t "ERROR: cannot parse '~A': ~A~%" STR (or fail-msg "unknown error")))))
+                  (format *error-output* "ERROR [as LS1RL]: cannot parse '~A': ~A~%" STR (or fail-msg "unknown error")))))
          ;; (dbg (format nil "!!!!!!!!!!!!! STR: ~A  fname: ~A~%~A~%" STR fname
          ;;              (maphash (lambda (k v) (format t "  ~A => ~A~%" k v)) state-fname-hashes)) nil :cond t)
          ))
@@ -885,22 +959,55 @@ returns a list of lists (parsed strings) or null if nothing can be parsed more"
       (setf (<parsed-lines>-detected-format PARSED-LINES) (caar active-formats)))
     active-format-parsed-lines))
 
-(declaim (ftype (function (<parsed-lines> &key (:HINT-FORMAT (or null <format>))) (or null list)) get-detected-parsed-fnames))
-(defun get-detected-parsed-fnames (PARSED-LINES &key (HINT-FORMAT nil))
+(declaim (ftype (function (<parsed-lines> &key
+                                          (:HINT-FORMAT (or null <format>))
+                                          (:NEW-ROOT (or null string))
+                                          (:STRIP integer))
+                          (or null list))
+                get-detected-parsed-fnames))
+(defun get-detected-parsed-fnames (PARSED-LINES &key (HINT-FORMAT nil) (NEW-ROOT nil) (STRIP 0))
   "Returns a list (<format> (<parsed-line>+)) items when the format was detected after series of calls
 of `parse-line`. If there are multiple most popular formats (detection is not clean) then
 `hint-format` (it is a <format>) can help to prefer one of the same popular detected formats,
 else the first one is selected. If cannot be found just one - NIL is returned"
-  (let* ((most-parsed (get-most-parsed-lines PARSED-LINES))
-         (most-parsed-num (length most-parsed)))
-    (if (and (< 1 most-parsed-num) HINT-FORMAT)
-        (car (dbg ">>>>1>>>>" (remove-if-not (lambda (fmt-and-lines) (eql (car fmt-and-lines) HINT-FORMAT)) most-parsed) :cond t))
-        ;; Covers all other cases including empty most-parsed:
-        (car (dbg ">>>>>2>>>>" most-parsed :cond t)))))
+  (let* ((most-parsed-variants (get-most-parsed-lines PARSED-LINES))
+         (most-parsed-num (length most-parsed-variants))
+         (chosen-most-parsed (if (and (< 1 most-parsed-num) HINT-FORMAT)
+                                 (car (remove-if-not (lambda (fmt-and-lines)
+                                                       (eql (car fmt-and-lines) HINT-FORMAT))
+                                                     most-parsed-variants))
+                                 ;; Covers all other cases including empty most-parsed:
+                                 (car most-parsed-variants))))
+    (when (and STRIP (> STRIP 0) chosen-most-parsed)
+      (dolist (parsed-line (cadr chosen-most-parsed))
+        ;; (break "!!! ~S" parsed-line)
+        (setf (<parsed-line>-fname parsed-line)
+              (strip-top-dirs (<parsed-line>-fname parsed-line) STRIP))))
+    (when (and NEW-ROOT chosen-most-parsed)
+      (dolist (parsed-line (cadr chosen-most-parsed))
+        (setf (<parsed-line>-fname parsed-line)
+              (remount-fname NEW-ROOT (<parsed-line>-fname parsed-line)))))
+    chosen-most-parsed))
 
 (defun remount-fname (NEW-ROOT FNAME)
   "Changes the directory of FNAME"
   (concatenate 'string (string-right-trim "/" NEW-ROOT) "/" (string-left-trim "./" FNAME)))
+
+(defun strip-top-dirs (path n)
+  "Removes upper/top directories: /a/b/c -> b/c"
+  (if (<= n 0)
+      path
+      (let* ((pn (pathname path))
+             (dirs (pathname-directory pn))
+             (new-dirs (nthcdr n (rest dirs)))
+             (done (/= (length new-dirs) (length dirs))))
+        (if done
+            (namestring (make-pathname
+                         :directory (cons :relative (nthcdr n (rest dirs)))
+                         :name (pathname-name pn)
+                         :type (pathname-type pn)
+                         :defaults pn))
+            path))))
 
 (defun replace-all-occurrences (IN-STR OLD NEW)
   (let* ((in-len (length IN-STR))
@@ -927,8 +1034,62 @@ else the first one is selected. If cannot be found just one - NIL is returned"
                       (repl 0 res)))
       (values res-str done))))
 
+(defmacro prog-if (VAR VAL &body BODY)
+  "Executes body with accessible variable called VAR if the value VAL is not NIL and returns the body's
+result. Else - NIL"
+  `(let ((,VAR ,VAL))
+     (when ,VAR ,@BODY)))
 
-(defmacro with-fname (PARSED-LINE
+(defmacro with-fname (PARSED-LINE &rest args)
+  (let (on-dir
+        on-file
+        current
+        quoted-fname-parent-var
+        quoted-fname-var
+        fname-parent-var
+        fname-var
+        (g-fname (gensym "FNAME-"))
+        (g-quote-path (gensym "QUOTE-PATH-")))
+    (dolist (form args)
+      (cond
+        ((eql form :on-dir)                     (setf current 'on-dir))
+        ((eql form :on-file)                    (setf current 'on-file))
+        ((eql form :quoted-fname-parent-var)    (setf current 'quoted-fname-parent-var))
+        ((eql form :quoted-fname-var)           (setf current 'quoted-fname-var))
+        ((eql form :fname-parent-var)           (setf current 'fname-parent-var))
+        ((eql form :fname-var)                  (setf current 'fname-var))
+        ((eql current 'on-dir)                  (push form on-dir))
+        ((eql current 'on-file)                 (push form on-file))
+        ((eql current 'quoted-fname-parent-var) (setf quoted-fname-parent-var form))
+        ((eql current 'quoted-fname-var)        (setf quoted-fname-var form))
+        ((eql current 'fname-parent-var)        (setf fname-parent-var form))
+        ((eql current 'fname-var)               (setf fname-var form))
+        (t (error "WITH-FNAME: unexpected form ~S" form))))
+    (unless on-dir (error "WITH-FNAME: missing :on-dir body"))
+    (unless on-file (error "WITH-FNAME: missing :on-file body"))
+    `(let* ,(remove nil
+                    `((,g-quote-path
+                       (lambda (f) (format nil "'~A'" (replace-all-occurrences f "'" "'\\''"))))
+                       (,g-fname (ecase (<parsed-line>-fsobj ,PARSED-LINE)
+                                   (:dir (ensure-directory-string (<parsed-line>-fname ,PARSED-LINE)))
+                                   (:file (<parsed-line>-fname ,PARSED-LINE))))
+                      ,(when fname-parent-var `(,fname-parent-var
+                                                (when ,g-fname (parent-path ,g-fname))))
+                      ,(when fname-var `(,fname-var ,g-fname))
+                      ,(when quoted-fname-parent-var `(,quoted-fname-parent-var
+                                                       (when ,g-fname
+                                                         (funcall ,g-quote-path (parent-path ,g-fname)))))
+                      ,(when quoted-fname-var `(,quoted-fname-var
+                                                (when ,g-fname
+                                                  (funcall ,g-quote-path ,g-fname))))))
+       (when (or ,quoted-fname-var ,fname-var)
+         (case (<parsed-line>-fsobj ,PARSED-LINE)
+           (:dir
+            (progn ,@(nreverse on-dir)))
+           (:file
+            (progn ,@(nreverse on-file))))))))
+
+(defmacro with-fname1 (PARSED-LINE
                       QUOTED-FNAME-PARENT-VAR
                       QUOTED-FNAME-VAR
                       &body body)
@@ -963,67 +1124,135 @@ else the first one is selected. If cannot be found just one - NIL is returned"
            (:file
             (progn ,@(nreverse on-file))))))))
 
-(defun mkfname (PARSED-LINE)
-  (with-fname PARSED-LINE quoted-fname-parent quoted-fname
-    :on-dir (let ((quoted-fname1 (pathname quoted-fname)))
-              (unless (uiop:directory-exists-p quoted-fname1)
-                (ensure-directories-exist quoted-fname1)
-                #|(uiop:run-program `("chmod" "755" ,quoted-fname1))|#))
-    :on-file (let ((quoted-fname-parent1 (pathname quoted-fname-parent))
-                   (quoted-fname1 (pathname quoted-fname)))
-              (unless (uiop:directory-exists-p quoted-fname-parent1)
-                (ensure-directories-exist quoted-fname-parent1)
-                (touch-file quoted-fname1)
-                #|(uiop:run-program `("chmod" "755" ,quoted-fname1))|#)))) ;; TODO implement setting of fmode!
+(defun ensure-file-exists (path)
+  (unless (probe-file path)
+    (with-open-file (stream path
+                            :direction :output
+                            :if-does-not-exist :create))))
 
-(defun mkfnames (PARSED-LINE-ITEMS)
+(defun do-fakable-action (FAKE-FLAG MSG ACTION &rest ARGS)
+  (if FAKE-FLAG
+      (format *error-output* "Immitation of ~A~%" MSG)
+      (handler-case
+          (apply ACTION ARGS)
+        (error (e) (format *error-output* "ERROR while ~A: ~A~%" MSG e)))))
+
+(defun mkfname (FAKE-FLAG FORCE-FMODE PARSED-LINE)
+  "Makes fname (ie creates FS entry from it) - directory of a file"
+  (with-fname PARSED-LINE :fname-parent-var fname-parent :fname-var fname
+    :on-dir (let ((fname1 (pathname fname))
+                  (chmod-cmds (mapcar (lambda (chmod-cmd) (format nil "~A ~A" chmod-cmd fname))
+                                      (mkfmode-script (<parsed-line>-fmode PARSED-LINE)))))
+              (unless (uiop:directory-exists-p fname1)
+                (do-fakable-action
+                  FAKE-FLAG
+                  (format nil "create directory ~A" fname1)
+                  #'ensure-directories-exist fname1)
+                (when FORCE-FMODE
+                  (dolist (chmod-cmd chmod-cmds)
+                    (do-fakable-action
+                      FAKE-FLAG
+                      (format nil "~A" chmod-cmd)
+                      #'uiop:run-program chmod-cmd)))))
+    :on-file (let ((fname-parent1 (pathname fname-parent))
+                   (fname1 (pathname fname))
+                   (chmod-cmds (mapcar (lambda (chmod-cmd) (format nil "~A ~A" chmod-cmd fname))
+                                       (mkfmode-script (<parsed-line>-fmode PARSED-LINE)))))
+               (unless (uiop:directory-exists-p fname-parent1)
+                 (do-fakable-action
+                   FAKE-FLAG
+                   (format nil "create directory ~A" fname-parent1)
+                   #'ensure-directories-exist fname-parent1))
+               (do-fakable-action
+                 FAKE-FLAG
+                 (format nil "create file ~A" fname1)
+                 #'ensure-file-exists
+                 fname1)
+               (when FORCE-FMODE
+                 (dolist (chmod-cmd chmod-cmds)
+                   (do-fakable-action
+                     FAKE-FLAG
+                     (format nil "~A" chmod-cmd)
+                     #'uiop:run-program chmod-cmd))))))
+
+(defun mkfnames (PARSED-LINES &key (HINT-FORMAT nil) (NEW-ROOT nil) (STRIP 0) (FORCE-FMODE nil))
   "Makes directories and files from parsed lines"
-  (dolist (parsed-line PARSED-LINE-ITEMS) (mkfname parsed-line)))
+  (let* ((parsed-line-items (cadr (get-detected-parsed-fnames PARSED-LINES
+                                                              :hint-format HINT-FORMAT
+                                                              :new-root NEW-ROOT
+                                                              :strip STRIP)))
+         (fake-flag (<parsed-lines>-dry PARSED-LINES)))
+    (dolist (parsed-line parsed-line-items) (mkfname fake-flag FORCE-FMODE parsed-line))))
 
-(declaim (ftype (function (<parsed-line>) list) mkfname-script))
-(defun mkfname-script (PARSED-LINE)
-  (with-fname PARSED-LINE quoted-fname-parent quoted-fname
-    :on-dir (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
-                          quoted-fname
-                          quoted-fname))
-    :on-file (append
-              (when quoted-fname-parent
-                ;; ensure that the parent of a file is created:
-                (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
-                              quoted-fname-parent
-                              quoted-fname-parent)))
-              (list (format nil "[ -f ~A ] || touch ~A || true"
-                            quoted-fname
-                            quoted-fname)))))
-  ;; (let*
-  ;;     ((quote-path (lambda (f) (format nil "'~A'"
-  ;;                                      (replace-all-occurrences f "'" "'\\''"))))
-  ;;      (fname (<parsed-line>-fname PARSED-LINE))
-  ;;      (quoted-fname-parent (when fname (funcall quote-path (parent-path fname))))
-  ;;      (quoted-fname (when fname (funcall quote-path fname))))
-  ;;   (when quoted-fname
-  ;;     (case (<parsed-line>-fsobj PARSED-LINE)
-  ;;       (:dir (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
-  ;;                           quoted-fname
-  ;;                           quoted-fname)))
-  ;;       (:file (append (when quoted-fname-parent
-  ;;                        ;; ensure that the parent of a file is created:
-  ;;                        (list (format nil "[ -d ~A ] || mkdir -p ~A || true"
-  ;;                                      quoted-fname-parent
-  ;;                                      quoted-fname-parent)))
-  ;;                      (list (format nil "[-f ~A ] || touch ~A || true"
-  ;;                                    quoted-fname
-  ;;                                    quoted-fname)))))))
+(defconstant +non-script-fnames+ '("'.'" "'..'" "." ".."))
+
+(defun fname-for-script (FNAME)
+  "Returns T if FNAME is good for script (no reason to do it for . or ..)"
+  (not (member FNAME +non-script-fnames+ :test #'string=)))
+
+(declaim (ftype (function (<parsed-line> boolean) list) mkfname-script))
+(defun mkfname-script (PARSED-LINE FORCE-FMODE)
+  (with-fname PARSED-LINE :quoted-fname-parent-var quoted-fname-parent :quoted-fname-var quoted-fname
+    :on-dir (when (fname-for-script quoted-fname)
+              (append
+               (list (format nil "[ -d ~A ] || {" quoted-fname)
+                     (format nil "  mkdir -p ~A" quoted-fname))
+               (when FORCE-FMODE
+                 (mapcar (lambda (chmod-cmd) (format nil "  ~A ~A" chmod-cmd quoted-fname))
+                         (mkfmode-script (<parsed-line>-fmode PARSED-LINE))))
+               (list "}")))
+    :on-file (when (fname-for-script quoted-fname)
+               (append
+                (when (and quoted-fname-parent
+                           ;; quoted '.' - "inside current dir", we won't ensure it:
+                           (string/= "'.'" quoted-fname-parent))
+                  ;; ensure that the parent of a file is created:
+                  (list (format nil "[ -d ~A ] || {" quoted-fname-parent)
+                        (format nil "  mkdir -p ~A" quoted-fname-parent)
+                        "}"))
+                (list (format nil "[ -f ~A ] || {" quoted-fname)
+                      (format nil "  touch ~A" quoted-fname))
+                (when FORCE-FMODE
+                  (mapcar (lambda (chmod-cmd) (format nil "  ~A ~A" chmod-cmd quoted-fname))
+                          (mkfmode-script (<parsed-line>-fmode PARSED-LINE))))
+                (list "}")))))
+
+(declaim (ftype (function (integer) list) mkfmode-script))
+(defun mkfmode-script (FMODE)
+  "Returns a list of chmod-commands (without the path) for FMODE bits - takes into account
+only r,w bits for regular files and directories"
+  (setf FMODE (logand FMODE #xFFFF))
+  (when (member (logand FMODE #xF000) '(#x8000 #x4000))
+    (let (user-bits group-bits other-bits)
+      (when (/= 0 (logand #x0080 FMODE)) (push "w" user-bits))
+      (when (/= 0 (logand #x0100 FMODE)) (push "r" user-bits))
+      (when (/= 0 (logand #x0010 FMODE)) (push "w" group-bits))
+      (when (/= 0 (logand #x0020 FMODE)) (push "r" group-bits))
+      (when (/= 0 (logand #x0002 FMODE)) (push "w" other-bits))
+      (when (/= 0 (logand #x0004 FMODE)) (push "r" other-bits))
+      (when user-bits (setf user-bits (format nil "chmod u+~{~A~}" user-bits)))
+      (when group-bits (setf group-bits (format nil "chmod g+~{~A~}" group-bits)))
+      (when other-bits (setf other-bits (format nil "chmod o+~{~A~}" other-bits)))
+      (remove nil (list user-bits group-bits other-bits)))))
 
 
-(defun mkfnames-script (PARSED-LINES &key (HINT-FORMAT nil))
+;; TODO force-fmode
+(defun mkfnames-script (PARSED-LINES &key (HINT-FORMAT nil) (NEW-ROOT nil) (STRIP 0) (FORCE-FMODE nil))
   "Prepares a shell script able to make all directories and files from parsed lines"
-  (let* ((parsed-line-items (dbg (format nil "!!!!!!mkfnames-script (hint-format: ~S)" HINT-FORMAT)
-                                 (cadr (get-detected-parsed-fnames PARSED-LINES :hint-format HINT-FORMAT))
-                                 :cond t))
-         (commands (mapcan #'mkfname-script parsed-line-items))
-         ;; optimization: remove duplicated commands (mkdir-s):
-         (uniq-commands (remove-duplicates commands :test #'equalp :from-end t))
+  (let* ((parsed-line-items (cadr (get-detected-parsed-fnames PARSED-LINES
+                                                              :hint-format HINT-FORMAT
+                                                              :new-root NEW-ROOT
+                                                              :strip STRIP)))
+         (commands (mapcan (lambda (parsed-line) (mkfname-script parsed-line FORCE-FMODE))
+                           parsed-line-items))
+         (uniq-cmd-p
+           (lambda (a b)
+             (if (and (string= a "}") (string= b "}")) nil (string= a b))))
+         (uniq-commands (loop for cmd in (remove-duplicates commands :test uniq-cmd-p :from-end t)
+                              with prev = nil
+                              unless (and prev (string= prev "}") (string= cmd "}"))
+                                collect cmd into out and do (setf prev cmd)
+                              finally (return out)))
          (script (format nil "~{~A~^~%~}" uniq-commands)))
     script))
 
@@ -1044,94 +1273,6 @@ else the first one is selected. If cannot be found just one - NIL is returned"
 ;; TODO ../ in the beginning is also possible!!!
 ;; ending can be @, =, etc...
 
-(defun ls-1r-line-det (line)  ;; XXX Must be ran after `ls-1rl-line-det`
-  (let ((last-i (1- (length line)))
-        (uniq-features 0))
-    (when
-        (or
-         (when (string= "" (trim-any-whitespaces line)) (incf uniq-features))
-         (and (>= last-i 0)
-              ;; If there are spaces, the line must start with ' or " (else: not our case, T)
-              (implies (find #\Space line :test #'char=) (case (ch-at line 0) (#\' t) (#\" t)))
-              (case (ch-at line 0)
-                ((#\' #\" #\/ #\.) t)
-                (t (alphanumericp (ch-at line 0))))
-              (or (and (char= #\: (ch-at line last-i))
-                       (or (starts-with-p line "/")
-                           (starts-with-p line "./")
-                           (starts-with-p line "../")
-                           (starts-with-p line "'./")
-                           (starts-with-p line "\"./")
-                           (starts-with-p line "'../")
-                           (starts-with-p line "\"../")))
-                  ;; TODO windows?
-                  (char/= #\: (ch-at line last-i)))))
-      (list (cons :uniq-features uniq-features)))))
-
-
-(defun ls-1rl-line-det (line)
-  (let* ((last-i (1- (length line)))
-         (total-str "total ")
-         (file-delim (case (ch-at line last-i)
-                       (#\' #\')
-                       (#\" #\")
-                       (t #\Space)))
-         (attrs 0) (i 0) (filechars 0) (mtimechars 0)
-         (uniq-features 0))
-    (when
-        (and (> last-i 0)
-             (or (and (starts-with-p line total-str) (> last-i (length total-str))
-                      (digit-char-p (ch-at line (length total-str))))
-                 (and (char= #\: (ch-at line last-i))
-                      (or (starts-with-p line "/")
-                          (starts-with-p line "./")
-                          (starts-with-p line "../")
-                          (starts-with-p line "'./")
-                          (starts-with-p line "\"./")
-                          (starts-with-p line "'../")
-                          (starts-with-p line "\"../")))
-                 (when
-                     (and
-                      ;; 17 - minimum length with minimal column sizes and 1 space-delimiter:
-                      (>= last-i 17)
-                      (loop :for ch := (ch-at line i)
-                            :while (< i last-i)
-                            :while (or (char= ch #\-) (char= ch #\r) (char= ch #\w) (char= ch #\x)
-                                       (char= ch #\l) (char= ch #\b) (char= ch #\c) (char= ch #\p)
-                                       (char= ch #\s) (char= ch #\D) (char= ch #\P) (char= ch #\n)
-                                       (char= ch #\C) (char= ch #\M) (char= ch #\?) (char= ch #\S)
-                                       (char= ch #\t) (char= ch #\T) (char= ch #\d)
-                                       (char= ch #\+) (char= ch #\.) (char= ch #\@))
-                            :while (char/= ch #\Space)
-                            :do (incf attrs) (incf i)
-                            :finally (return (or (= attrs 10) (= attrs 11))))
-                      (char= (ch-at line i) #\Space)
-                      (loop :for j :downfrom last-i :to 0
-                            :for ch = (ch-at line j)
-                            :while (or (char/= ch file-delim) (= j last-i))
-                            :do (incf filechars)
-                            :finally
-                               (when
-                                   ;; Files with spaces or '/" are quoted with "...'..." and
-                                   ;; '..."...'. If file is not quoted, when we hit the space,
-                                   ;; we counted file size correctly. But when we hit '/", we
-                                   ;; counted the rightmost '/" and all file symbols, but not
-                                   ;; the leftmost '/", to do it, we have to do yet another
-                                   ;; iteration! So, when the exit-char hit by us is not space,
-                                   ;; it is some quote-symbol, so increment filechars to treat
-                                   ;; 'xxx' as 5 symbols, not 4
-                                   (char/= ch #\Space) (incf filechars))
-                               ;; (format t "'~A' (~C)~%" filechars file-delim)
-                               (return (> filechars 0)))
-                      (loop :for j :downfrom (- last-i filechars 1) :to 0
-                            :for ch = (ch-at line j)
-                            :while (or (digit-char-p ch) (char= ch #\:))
-                            :do (incf mtimechars) ;; last column of mtime is HH:MM or YYYY
-                            :finally (return (or (= mtimechars 4) (= mtimechars 5)))))
-                   (incf uniq-features 1))))
-      (list (cons :uniq-features uniq-features)))))
-
-
 (defun safe-assoc (pairs kw &KEY default)
   (let ((p (and (listp pairs)
                 (assoc kw (remove-if-not #'consp pairs)))))
@@ -1143,41 +1284,6 @@ else the first one is selected. If cannot be found just one - NIL is returned"
   NIL or '((:uniq-features) <int>)...) or something else. If it cannot
   be got, then it returns `default` (NIL or passed)''"
   (safe-assoc det-result :uniq-features :default default))
-
-
-(defun det-format (funcs lines)
-  "Finds the function (among `funcs`, returned as an index) which is mostly satisfied
-  on `lines` (at least once! Else - returns nil)"
-  (let* ((aggregate-func-lines-results
-           (lambda (acc e)
-             (if e
-                 (list (1+ (car acc)) (+ (get-uniq-features e 0) (cadr acc)))
-                 acc)))
-         (funcs-over-lines-results (mapcar (lambda (fn) (mapcar fn lines)) funcs))
-         (funcs-results-0 (mapcar (lambda (lines-results)
-                                    (reduce aggregate-func-lines-results
-                                            lines-results
-                                            :initial-value (list 0 0)))
-                                  funcs-over-lines-results))
-         ;; just enumerated (0 ...) (1 ...)... :
-         (funcs-results-1 (loop :for e :in funcs-results-0
-                                :for i :from 0
-                                :collect (cons i e)))
-         (sorted-by-hits (sort funcs-results-1
-                               (lambda (a b)
-                                 (or (> (car a) (car b))
-                                     (and (= (car a) (car b))
-                                          (> (cadr a) (cadr b)))))
-                               :key #'cdr)))
-    (and funcs lines (caar sorted-by-hits))))
-
-
-  ;; (let* ((funcs-hits (mapcar (lambda (fn)
-  ;;                              (count-if fn lines))
-  ;;                            funcs))
-  ;;        (max-hits-num (apply #'max funcs-hits)))
-  ;;   (and (> max-hits-num 0)
-  ;;        (position max-hits-num funcs-hits))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Variables ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1198,9 +1304,6 @@ else the first one is selected. If cannot be found just one - NIL is returned"
 (defun det-*path-sep* ()
   (ecase *OS* (:windows "\\") (:unix "/") (:mac "/")))
 
-
-;; Known dir listing formats
-(defconstant +fmt+ '(:ls :find :tree))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Logic ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defun detect-series (INPUT CLASSIFIERS)
@@ -1478,8 +1581,10 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                     :as-tree (list (make-<parsed-line> :format :tree :fname ".tech" :fsobj :dir)
                                    (make-<parsed-line> :format :tree :fname ".tech/history.json" :fsobj :file)
                                    (make-<parsed-line> :format :tree :fname ".tech/opened.txt" :fsobj :file))
-                    :tree-state (make-<tree-state> :indents nil :fnames '(".tech")
-                                                   :last-pure-fname ".tech"))
+                    :tree-state (make-<tree-state>
+                                 :indents '(4)
+                                 :fnames '("opened.txt" ".tech")
+                                 :last-pure-fname "opened.txt"))
                    (let ((pls (make-<parsed-lines>)))
                      (parse-line-as-tree pls ".tech")
                      (parse-line-as-tree pls "├── history.json")
@@ -1513,6 +1618,21 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      (parse-line-as-find pls "'./dir2/dir 21'")
                      (parse-line-as-find pls "'./dir2/dir 21/file21'")
                      (parse-line-as-find pls "./dir3")
+                     pls))))
+
+(5am:test parse-line-as-find--test3
+          (5am:is (equalp
+                   (make-<parsed-lines>
+                    :dir-from-final-slash t
+                    :find-hits 3
+                    :as-find (list (make-<parsed-line> :format :find :fname ".tech" :fsobj :dir)
+                                   (make-<parsed-line> :format :find :fname ".tech/opened.txt" :fsobj :file)
+                                   (make-<parsed-line> :format :find :fname ".tech/history.json" :fsobj :file))
+                    :tree-state (make-<tree-state> :indents nil :fnames nil))
+                   (let ((pls (make-<parsed-lines>)))
+                     (parse-line-as-find pls ".tech")
+                     (parse-line-as-find pls ".tech/opened.txt")
+                     (parse-line-as-find pls ".tech/history.json")
                      pls))))
 
 (5am:test parse-fmode-str--test1
@@ -1709,26 +1829,38 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                    (let (;;(*dbg-cond* t)
                          (pls (make-<parsed-lines>)))
                      (parse-line pls "./dir1")
-                     (parse-line pls "'./dir1/dir 11'")
-                     (parse-line pls "'./dir1/dir 11/file11'")
-                     (parse-line pls "'./dir1/dir 11/file12'")
-                     (parse-line pls "'./dir2/dir 21'")
-                     (parse-line pls "'./dir2/dir 21/file21'")
+                     (parse-line pls "./dir1/dir 11")
+                     (parse-line pls "./dir1/dir 11/file11")
+                     (parse-line pls "./dir1/dir 11/file12")
+                     (parse-line pls "./dir2/dir 21")
+                     (parse-line pls "./dir2/dir 21/file21")
                      (parse-line pls "./dir3")
-                     ;; (dbg (format t "4!!!!!!!!!!!! tree-hits: ~A find-hits: ~A ls1r-hits: ~A ls1rl-hits: ~A~%"
-                     ;;              (<parsed-lines>-tree-hits pls) (<parsed-lines>-find-hits pls)
-                     ;;              (<parsed-lines>-ls1r-hits pls) (<parsed-lines>-ls1rl-hits pls)))
+                     (dbg (format nil "4!!!!!!!!!!!! tree-hits: ~A find-hits: ~A ls1r-hits: ~A ls1rl-hits: ~A~%"
+                                  (<parsed-lines>-tree-hits pls) (<parsed-lines>-find-hits pls)
+                                  (<parsed-lines>-ls1r-hits pls) (<parsed-lines>-ls1rl-hits pls)))
                      (<parsed-lines>-detected-format pls)))))
 
 (5am:test mkfnames-script--test1
-          (5am:is (equal
-                   "[ -d 'etc' ] || mkdir -p 'etc' || true
-[ -d 'etc/dir' ] || mkdir -p 'etc/dir' || true
-[ -f 'etc/dir/file '\\'' 1' ] || touch 'etc/dir/file '\\'' 1' || true
-[ -f 'etc/dir/file-2' ] || touch 'etc/dir/file-2' || true
-[ -f 'etc/file-3' ] || touch 'etc/file-3' || true
-[ -d 'tmp' ] || mkdir -p 'tmp' || true"
-                   (let ((*dbg-cond* t)
+  (5am:is (equal
+"[ -d 'etc/' ] || {
+  mkdir -p 'etc/'
+}
+[ -d 'etc/dir/' ] || {
+  mkdir -p 'etc/dir/'
+}
+[ -f 'etc/dir/file '\\'' 1' ] || {
+  touch 'etc/dir/file '\\'' 1'
+}
+[ -f 'etc/dir/file-2' ] || {
+  touch 'etc/dir/file-2'
+}
+[ -f 'etc/file-3' ] || {
+  touch 'etc/file-3'
+}
+[ -d 'tmp/' ] || {
+  mkdir -p 'tmp/'
+}"
+                   (let (;;(*dbg-cond* t)
                          (pls (make-<parsed-lines>)))
                      (parse-line pls "etc")
                      (parse-line pls "+---dir/")
@@ -1737,6 +1869,36 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
                      (parse-line pls "+---file-3")
                      (parse-line pls "tmp/")
                      (mkfnames-script pls)))))
+
+(5am:test mkfnames-script--test2
+  (5am:is (equal
+"[ -d 'etc/' ] || {
+  mkdir -p 'etc/'
+}
+[ -d 'etc/dir/' ] || {
+  mkdir -p 'etc/dir/'
+}
+[ -f 'etc/dir/file '\\'' 1' ] || {
+  touch 'etc/dir/file '\\'' 1'
+}
+[ -f 'etc/dir/file-2' ] || {
+  touch 'etc/dir/file-2'
+}
+[ -f 'etc/file-3' ] || {
+  touch 'etc/file-3'
+}
+[ -d 'tmp/' ] || {
+  mkdir -p 'tmp/'
+}"
+                   (let (;;(*dbg-cond* t)
+                         (pls (make-<parsed-lines>)))
+                     (parse-line pls "etc")
+                     (parse-line pls "    dir/")
+                     (parse-line pls "          file ' 1")
+                     (parse-line pls "          file-2")
+                     (parse-line pls "    file-3")
+                     (parse-line pls "tmp/")
+                     (mkfnames-script pls :hint-format :TREE)))))
 
 (5am:test extract-ls-fname--test1
           (5am:is (equal
@@ -1932,22 +2094,51 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
 
 (defun cli-script-cmd-handler (cmd)
   (declare (ignorable cmd))
-  ;; (trace parse-line)
   (let* ((hint-fmt (cli-kw-getopt cmd :from))
-         (force-fmode (clingon:getopt cmd :fmode)) ;; TODO
-         (strip (clingon:getopt cmd :strip)) ;; TODO
-         (new-root (clingon:getopt cmd :prepend)) ;; TODO
-         (pls (make-<parsed-lines>)))
-    (loop :for line := (read-line *standard-input* nil nil)
-          :while line
-          :do
+         (force-fmode (clingon:getopt cmd :fmode))
+         (strip (clingon:getopt cmd :strip))
+         (new-root (clingon:getopt cmd :prepend))
+         (pls (make-<parsed-lines> :verbose (clingon:getopt cmd :verbose))))
+    (loop for line = (read-line *standard-input* nil nil)
+          while line
+          do
              (setf line (string-trim *unicode-whitespace-chars* line))
              (unless (emptyp line)
-               (format t "!!!!!!!!!!!!!!! STR='~A'~%" line)
                (parse-line pls line))
           :finally
-             (format t "PLS=~S~%" pls)
-             (format t "~A~%" (mkfnames-script pls :hint-format hint-fmt)))))
+             ;; (format t "PLS=~S~%" pls)
+             (when (<parsed-lines>-detected-format pls)
+               (format *error-output* "AUTODETECTED FORMAT: ~A~%" (<parsed-lines>-detected-format pls)))
+             (format t "~A~%" (mkfnames-script pls
+                                               :hint-format hint-fmt
+                                               :new-root new-root
+                                               :strip strip
+                                               :force-fmode force-fmode)))))
+
+(defun cli-make-cmd-handler (cmd)
+  (declare (ignorable cmd))
+  (let* ((hint-fmt (cli-kw-getopt cmd :from))
+         (force-fmode (clingon:getopt cmd :fmode))
+         (strip (clingon:getopt cmd :strip))
+         (dry (clingon:getopt cmd :dry))
+         (verbose (clingon:getopt cmd :verbose))
+         (new-root (clingon:getopt cmd :prepend))
+         (pls (make-<parsed-lines> :verbose verbose :dry dry)))
+    (loop for line = (read-line *standard-input* nil nil)
+          while line
+          do
+             (setf line (string-trim *unicode-whitespace-chars* line))
+             (unless (emptyp line)
+               (parse-line pls line))
+          :finally
+             ;; (format t "PLS=~S~%" pls)
+             (when (<parsed-lines>-detected-format pls)
+               (format *error-output* "AUTODETECTED FORMAT: ~A~%" (<parsed-lines>-detected-format pls)))
+             (format t "~A~%" (mkfnames pls
+                                        :hint-format hint-fmt
+                                        :new-root new-root
+                                        :strip strip
+                                        :force-fmode force-fmode)))))
 
 (defun cli-script-cmd-opts ()
   (list
@@ -1960,15 +2151,63 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
     :items +formats+)
    (clingon:make-option
     :flag
-    :description "Set permissions (file mode)"
+    :description "Set permissions (file mode) too"
     :short-name #\m
     :long-name "fmode"
     :key :fmode)
+   (clingon:make-option
+    :flag
+    :description "Verbose"
+    :short-name #\v
+    :long-name "verbose"
+    :key :verbose)
    (clingon:make-option
     :integer
     :description "Strip paths (N dirs up)"
     :short-name #\s
     :long-name "strip"
+    :initial-value 0
+    :key :strip)
+   (clingon:make-option
+    :string
+    :description "Prepend paths with common directory-prefix"
+    :short-name #\p
+    :long-name "prepend"
+    :key :prepend)))
+
+(defun cli-make-cmd-opts ()
+  (list
+   (clingon:make-option
+    :choice
+    :description "Force input format when it's ambiguous"
+    :short-name #\f
+    :long-name "from"
+    :key :from
+    :items +formats+)
+   (clingon:make-option
+    :flag
+    :description "Set permissions (file mode) too"
+    :short-name #\m
+    :long-name "fmode"
+    :key :fmode)
+   (clingon:make-option
+    :flag
+    :description "Verbose"
+    :short-name #\v
+    :long-name "verbose"
+    :key :verbose)
+   (clingon:make-option
+    :flag
+    :description "Dry run"
+    :short-name #\d
+    :long-name "dry"
+    :key :dry)
+   (clingon:make-option
+    :integer
+    :description "Strip paths (N dirs up)"
+    :short-name #\s
+    :long-name "strip"
+    :initial-value 0
     :key :strip)
    (clingon:make-option
     :string
@@ -1987,24 +2226,39 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
 (defun cli-script-cmd ()
   (clingon:make-command
    :name "script"
-   :usage "[-f FMT] -t FMT [-s N,DIR] [-p DIR]" ;; --strip DIR/<int> --rebase DIR ;; TODO
-   :examples '(("Convert from one format to another:" . "ls|convert -f LS -t TREE -")
-               ("Convert from unknown format to another:" . "tree|convert -t TREE -")
-               ("Convert from unknown format to another:" . "tree|convert -f AUTO -t FIND -"))
-   :description "Convert a tree from one format to another one"
+   :usage "[-f FMT] [-s N] [-p DIR] [-v] [-m]"
+   :examples '(("Generate shell script:" . "script")
+               ("Generate shell script with a format hint:" . "script -d TREE")
+               ("Generate shell script prepending it with a directory:" . "script -p x/y/z")
+               ("Generate shell script striping a directory by 2 levels:" . "script -s 2")
+               ("Generate shell script with mode setting" . "script -m"))
+   :description "Generate a Linux shell script reproducing the directory tree"
    :handler #'cli-script-cmd-handler
    :options (cli-script-cmd-opts)))
 
+(defun cli-make-cmd ()
+  (clingon:make-command
+   :name "make"
+   :usage "[-f FMT] [-s N] [-p DIR] [-v] [-m] [-d]"
+   :examples '(("Make a tree:" . "script")
+               ("Make a tree with a format hint:" . "script -d TREE")
+               ("Make a tree prepending it with a directory:" . "script -p x/y/z")
+               ("Make a tree striping a directory by 2 levels:" . "script -s 2")
+               ("Make a tree with mode setting" . "script -m")
+               ("Simulate making a tree (dry mode)" . "script -d"))
+   :description "Reproduce (make) directories and files"
+   :handler #'cli-make-cmd-handler
+   :options (cli-make-cmd-opts)))
 
-(defun cli-main-cmd (argv0)
-  (declare (ignorable argv0))
+
+(defun cli-main-cmd ()
   (clingon:make-command
    :name "tree"
-   :description "File system tree"
+   :description "File system tree reproducing"
    :version "0.1.0"
    :authors '("John Doe <john.doe@example.org>")
    :license "BSD 2-Clause"
-   :sub-commands (list (cli-script-cmd) (cli-tests-cmd))
+   :sub-commands (list (cli-script-cmd) (cli-make-cmd) (cli-tests-cmd))
    :handler (lambda (cmd)
               (format t "No known subcommand provided!~%~%")
               (clingon:print-usage cmd *standard-output*)
@@ -2039,13 +2293,35 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
           (t (list :binary (car fargv))))))
 
 
-(defun main (&rest argv)
+;; (defun main (&rest argv)
+;;   (let* ((*OS* (det-*OS*))
+;;          (*path-sep* (det-*path-sep*))
+;;          (qual-argv (process-argv argv))
+;;          (fixed-argv (ecase (car qual-argv)
+;;                        (:script (rest argv))
+;;                        (:binary argv))))
+;;     (clingon:run (cli-main-cmd (nth 1 qual-argv)) fixed-argv)))
+(defun main ()
   (let* ((*OS* (det-*OS*))
          (*path-sep* (det-*path-sep*))
-         (qual-argv (process-argv argv))
-         (fixed-argv (ecase (car qual-argv)
-                       (:script (rest argv))
-                       (:binary argv))))
-    (clingon:run (cli-main-cmd (nth 1 qual-argv)) fixed-argv)))
+         (argv (uiop:command-line-arguments)))
+    (clingon:run (cli-main-cmd) argv)))
+
+;; (declaim (optimize (debug 3) (safety 3) (speed 0)))
+
+;; (defun running-as-script-p ()
+;;   (format t "!!! ~S~ script-name: ~A%" sb-ext:*posix-argv* (uiop:running-from-script-p))
+;;   (uiop:running-from-script-p))
+
+;; (when (running-as-script-p)
+;;   (main (cdr sb-ext:*posix-argv*)))
+;; (main (cdr sb-ext:*posix-argv*))
+
+;; sbcl --load easytree.lisp \
+;;      --eval '(easytree:main (uiop:command-line-arguments))' \
+;;      --quit
+
+
+
 
 ;;; vim: set ft=lisp lisp:
