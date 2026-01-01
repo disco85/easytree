@@ -4,7 +4,12 @@
 ;;   ./build.sh easytree.lisp
 ;; Then:
 ;;   ./easytree --help
+;;
+;; "ls" command must be called in a special way:
+;; - /bin/ls (to avoid aliases!)
+;; - with options --quoting-style=shell
 
+;; TODO /bin/ls -1R --quoting-style=shell |./easytree script -v -p _XXX_  -- tries to create A as file then as dir
 
 ;; #.(unless (find-package :ql)
 ;;     (load (merge-pathnames "quicklisp/setup.lisp"
@@ -174,8 +179,8 @@
 
 ;; Special characters for Unix shells requiring escaping when THEY ARE INSIDE "LS" COMMAND OUTPUT
 ;; (so, no '.' among them):
-(defconstant +shell-special-characters+ "\\'`\"/!@#$%^&*()-_+={}[]|;:,<>? '}") ;; TODO check them in ls ! _,- are redundant, etc!!!
-;; (defconstant +shell-special-characters+ "\\\"")
+;; (defconstant +shell-special-characters+ "\\'`\"/!@#$%^&*()-_+={}[]|;:,<>? '}") ;; TODO check them in ls ! _,- are redundant, etc!!!
+(defconstant +shell-special-characters+ "\\'`\"/!@#$%^&*()+={}[]|;:,<>? '}")
 (defconstant +shell-string-special-characters+ "\"\\$`")
 
 (declaim (ftype (function (string) cons) extract-ls-fname))
