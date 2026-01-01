@@ -175,6 +175,7 @@
 ;; Special characters for Unix shells requiring escaping when THEY ARE INSIDE "LS" COMMAND OUTPUT
 ;; (so, no '.' among them):
 (defconstant +shell-special-characters+ "\\'`\"/!@#$%^&*()-_+={}[]|;:,<>? '}") ;; TODO check them in ls ! _,- are redundant, etc!!!
+;; (defconstant +shell-special-characters+ "\\\"")
 (defconstant +shell-string-special-characters+ "\"\\$`")
 
 (declaim (ftype (function (string) cons) extract-ls-fname))
