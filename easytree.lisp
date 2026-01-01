@@ -359,7 +359,7 @@ signle quotes). In general, shell paths look:
   ;; (number 0 :type integer)
   (dir-from-final-slash t :type boolean)
   (detected-format nil :type (or null <format>))
-  (verbose nil :type boolean)  ;; TODO add it to parse-* funcs
+  (verbose nil :type boolean)
   (dry nil :type boolean) ;; dry mode (do nothing)
   (tree-fail-msg nil :type (or null string)) ;; last fail message of this format
   (find-fail-msg nil :type (or null string)) ;; last fail message of this format
@@ -2150,7 +2150,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
     :items +formats+)
    (clingon:make-option
     :flag
-    :description "Set permissions (file mode)"
+    :description "Set permissions (file mode) too"
     :short-name #\m
     :long-name "fmode"
     :key :fmode)
@@ -2185,7 +2185,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
     :items +formats+)
    (clingon:make-option
     :flag
-    :description "Set permissions (file mode)"
+    :description "Set permissions (file mode) too"
     :short-name #\m
     :long-name "fmode"
     :key :fmode)
@@ -2225,22 +2225,27 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
 (defun cli-script-cmd ()
   (clingon:make-command
    :name "script"
-   :usage "[-f FMT] -t FMT [-s N,DIR] [-p DIR]" ;; --strip DIR/<int> --rebase DIR ;; TODO
-   :examples '(("Convert from one format to another:" . "ls|convert -f LS -t TREE -")
-               ("Convert from unknown format to another:" . "tree|convert -t TREE -")
-               ("Convert from unknown format to another:" . "tree|convert -f AUTO -t FIND -"))
-   :description "Convert a tree from one format to another one"
+   :usage "[-f FMT] [-s N] [-p DIR] [-v] [-m]"
+   :examples '(("Generate shell script:" . "script")
+               ("Generate shell script with a format hint:" . "script -d TREE")
+               ("Generate shell script prepending it with a directory:" . "script -p x/y/z")
+               ("Generate shell script striping a directory by 2 levels:" . "script -s 2")
+               ("Generate shell script with mode setting" . "script -m"))
+   :description "Generate a Linux shell script reproducing the directory tree"
    :handler #'cli-script-cmd-handler
    :options (cli-script-cmd-opts)))
 
 (defun cli-make-cmd ()
   (clingon:make-command
    :name "make"
-   :usage "[-f FMT] -t FMT [-s N,DIR] [-p DIR]" ;; --strip DIR/<int> --rebase DIR ;; TODO
-   :examples '(("Convert from one format to another:" . "ls|convert -f LS -t TREE -")
-               ("Convert from unknown format to another:" . "tree|convert -t TREE -")
-               ("Convert from unknown format to another:" . "tree|convert -f AUTO -t FIND -"))
-   :description "Make directories and files"
+   :usage "[-f FMT] [-s N] [-p DIR] [-v] [-m] [-d]"
+   :examples '(("Make a tree:" . "script")
+               ("Make a tree with a format hint:" . "script -d TREE")
+               ("Make a tree prepending it with a directory:" . "script -p x/y/z")
+               ("Make a tree striping a directory by 2 levels:" . "script -s 2")
+               ("Make a tree with mode setting" . "script -m")
+               ("Simulate making a tree (dry mode)" . "script -d"))
+   :description "Reproduce (make) directories and files"
    :handler #'cli-make-cmd-handler
    :options (cli-make-cmd-opts)))
 
@@ -2248,7 +2253,7 @@ CL-USER> (hash-literal :a '(a b c) :b (hash-literal :c '(1 2 3)))
 (defun cli-main-cmd ()
   (clingon:make-command
    :name "tree"
-   :description "File system tree"
+   :description "File system tree reproducing"
    :version "0.1.0"
    :authors '("John Doe <john.doe@example.org>")
    :license "BSD 2-Clause"
