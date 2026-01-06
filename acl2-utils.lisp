@@ -16,6 +16,8 @@
 (defthm next-fname-start-multi-decorations
     (implies (and (member-eq st '(:decorations :dash))
                   (eql st ev))
-             (let ((result (next-fname-start st ev)))
-               (and (eql (car result) st)
-                    (null (cdr result))))))
+             (let* ((result (next-fname-start st ev))
+                    (new-st (car result))
+                    (ended-p (cdr result)))
+               (and (eql new-st st)
+                    (null ended-p)))))
