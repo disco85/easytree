@@ -52,6 +52,11 @@
 
 (def-pop-until pop-until-equal-zero some-pop-until-equal-zero :criteria zerop)
 
+;; #+acl2
+;; (defconst *fname-terms* '(:decorations :dash :space :alphanum))
+;; #-acl2
+;; (defparameter *fname-terms* '(:decorations :dash :space :alphanum))
+
 (defun next-fname (st ev)
   (cond
     ((and (eql st :decorations) (eql ev :dash))

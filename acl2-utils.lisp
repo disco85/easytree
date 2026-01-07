@@ -58,13 +58,26 @@
 ;;            (= (len (pop-until-zero stack stack t))
 ;;               0)))
 
+;; Short alias - it calls FSM next step but ACL2 just uses it for rewrite:
+(defun next-fname-state (st ev)
+  (car (next-fname st ev)))
+
+;; Short alias - it calls FSM next step but ACL2 just uses it for rewrite:
+(defun next-fname-ended-p (st ev)
+  (cdr (next-fname st ev)))
+
 ;; Loops are in :decorations :dash only ("loops" mean don't stop, ie, ended-p is false and
 ;; stays in the same state, ie new-st = st):
 (defthm next-fname--loops
     (implies (and (member-eq st '(:decorations :dash))
                   (eql st ev))
-             (let* ((result (next-fname st ev))
-                    (new-st (car result))
-                    (ended-p (cdr result)))
-               (and (eql new-st st)
-                    (null ended-p)))))
+             (and (eql (next-fname-state st ev) st)
+                  (not (next-fname-ended-p st ev)))))
+
+;; FSM ends in :alphanum state only:
+;; XXX If you repeat `(next-fname st ev)`, it's OK, ACL2 does not call next-fname, and if
+;;     textually/syntactically they are the same - logically it's the same term. You see
+;;     it in `next-fname-state` and `next-fname-ended-p` above
+(defthm next-fname--ended-in-alphanum
+  (iff (next-fname-ended-p st ev)
+       (equal (next-fname-state st ev) :alphanum)))
