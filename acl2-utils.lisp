@@ -40,7 +40,7 @@
 ;;   ;;:hints (("Goal" :use cdr-of-cons-not-not-found))
 ;;   )
 
-(defthm pop-until-zero-rec-not-found-if-no-zero
+(defthm pop-until-zero-rec--not-found-if-no-elem
   (implies (and (true-listp stack)
                 (not (some-item-zerop stack)))
            (equal (pop-until-zero-rec stack t)
