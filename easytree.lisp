@@ -58,7 +58,6 @@
 ;;     ((not (find ch " 	")) :fnamechars)))
 
 
-
 (defparameter *OS* nil)
 
 (defun trim-any-whitespaces (string)
