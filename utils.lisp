@@ -52,10 +52,10 @@
 
 (def-pop-until pop-until-equal-zero some-pop-until-equal-zero :criteria zerop)
 
-;; #+acl2
-;; (defconst *fname-terms* '(:decorations :dash :space :alphanum))
-;; #-acl2
-;; (defparameter *fname-terms* '(:decorations :dash :space :alphanum))
+#+acl2
+(defconst *fname-terms* '(:decorations :dash :space :fnamechars))
+#-acl2
+(defparameter *fname-terms* '(:decorations :dash :space :fnamechars))
 
 (defun next-fname (st ev)
   (cond
@@ -63,12 +63,25 @@
      (cons :dash nil))
     ((and (eql st :decorations) (eql ev :decorations))
      (cons :decorations nil))
+    ((and (eql st :decorations) (eql ev :space))
+     (cons :decorations nil))
+
     ((and (eql st :dash) (eql ev :space))
      (cons :space nil))
     ((and (eql st :dash) (eql ev :dash))
      (cons :dash nil))
-    ((and (eql st :dash) (eql ev :alphanum))
-     (cons :alphanum t))
-    ((and (eql st :space) (eql ev :alphanum))
-     (cons :alphanum t))
+    ((and (eql st :dash) (eql ev :fnamechars))
+     (cons :fnamechars t))
+
+    ((and (eql st :space) (eql ev :fnamechars))
+     (cons :fnamechars t))
+
     (t (cons :unexpected nil))))
+
+
+(defun next-fname-event (ch)
+  (cond
+    ((member ch (coerce "+`├" 'list)) :decorations)
+    ((member ch (coerce "─-" 'list)) :dash)
+    ((member ch (coerce " 	" 'list)) :space)
+    ((not (member ch (coerce " 	" 'list))) :fnamechars)))

@@ -2,27 +2,62 @@
 
 (in-package #:easytree)
 
+;; (defparameter *unicode-whitespace-chars*
+;;   '(#\Space #\Tab #\Newline #\Return
+;;     #\No-break_space           ; U+00A0
+;;     #\Ogham_space_mark         ; U+1680
+;;     #\En_quad                  ; U+2000
+;;     #\Em_quad                  ; U+2001
+;;     #\En_space                 ; U+2002
+;;     #\Em_space                 ; U+2003
+;;     #\Three-per-em_space       ; U+2004
+;;     #\Four-per-em_space        ; U+2005
+;;     #\Six-per-em_space         ; U+2006
+;;     #\Figure_space             ; U+2007
+;;     #\Punctuation_space        ; U+2008
+;;     #\Thin_space               ; U+2009
+;;     #\Hair_space               ; U+200A
+;;     #\Zero_width_space         ; U+200B
+;;     #\Narrow_no-break_space    ; U+202F
+;;     #\Medium_mathematical_space; U+205F
+;;     #\Ideographic_space))
+                                        ; U+3000
+
 (defparameter *unicode-whitespace-chars*
-  '(#\Space #\Tab #\Newline #\Return
-    #\No-break_space           ; U+00A0
-    #\Ogham_space_mark         ; U+1680
-    #\En_quad                  ; U+2000
-    #\Em_quad                  ; U+2001
-    #\En_space                 ; U+2002
-    #\Em_space                 ; U+2003
-    #\Three-per-em_space       ; U+2004
-    #\Four-per-em_space        ; U+2005
-    #\Six-per-em_space         ; U+2006
-    #\Figure_space             ; U+2007
-    #\Punctuation_space        ; U+2008
-    #\Thin_space               ; U+2009
-    #\Hair_space               ; U+200A
-    #\Zero_width_space         ; U+200B
-    #\Narrow_no-break_space    ; U+202F
-    #\Medium_mathematical_space; U+205F
-    #\Ideographic_space))      ; U+3000
+  (list #\Space #\Tab #\Newline #\Return
+        (code-char #x00A0)
+        (code-char #x1680)
+        (code-char #x2000)
+        (code-char #x2001)
+        (code-char #x2002)
+        (code-char #x2003)
+        (code-char #x2004)
+        (code-char #x2005)
+        (code-char #x2006)
+        (code-char #x2007)
+        (code-char #x2008)
+        (code-char #x2009)
+        (code-char #x200A)
+        (code-char #x200B)
+        (code-char #x202F)
+        (code-char #x205F)
+        (code-char #x3000)))
 
 (defparameter *unicode-whitespace-string* (coerce *unicode-whitespace-chars* 'string))
+
+;; (deftype <fname-terms> (append '(member) acl2::*fname-terms*))
+(defun fname-term-p (x) (member x acl2:*fname-terms* :test #'eql))
+(deftype <fname-term> () `(satisfies fname-term-p))
+
+(declaim (ftype (function (character) <fname-term>) acl2:next-fname-event))
+;; (defun next-fname-event (ch)
+;;   (cond
+;;     ((find ch "+`├") :decorations)
+;;     ((find ch "─-") :dash)
+;;     ((find ch " 	") :space)
+;;     ((not (find ch " 	")) :fnamechars)))
+
+
 
 (defparameter *OS* nil)
 

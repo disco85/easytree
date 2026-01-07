@@ -74,10 +74,18 @@
              (and (eql (next-fname-state st ev) st)
                   (not (next-fname-ended-p st ev)))))
 
-;; FSM ends in :alphanum state only:
+;; FSM ends in :fnamechars state only:
 ;; XXX If you repeat `(next-fname st ev)`, it's OK, ACL2 does not call next-fname, and if
 ;;     textually/syntactically they are the same - logically it's the same term. You see
 ;;     it in `next-fname-state` and `next-fname-ended-p` above
 (defthm next-fname--ended-in-alphanum
   (iff (next-fname-ended-p st ev)
-       (equal (next-fname-state st ev) :alphanum)))
+       (equal (next-fname-state st ev) :fnamechars)))
+
+;; For any `ch` `(next-fname-event ch)` is T (not NIL), ie, the func is total:
+(defthm next-fname-event-total
+  (next-fname-event ch))
+
+;; Similar to previous but checking particular domain of `next-fname-event`:
+(defthm next-fname-event--domain
+  (member (next-fname-event ch) *fname-terms*))
