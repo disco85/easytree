@@ -217,7 +217,6 @@
               (clingon:print-usage cmd *standard-output*)
               (uiop:quit 1))))
 
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Main ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun main ()
