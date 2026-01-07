@@ -1,12 +1,12 @@
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (unless (find-package :fiveam)
-    ;; prefer fiveam-asdf (ASDF integration) then fall back to fiveam
-    (or (ignore-errors (asdf:load-system :fiveam-asdf))
-        (ignore-errors (asdf:load-system :fiveam)))))
+;; (eval-when (:compile-toplevel :load-toplevel :execute)
+;;   (unless (find-package :fiveam)
+;;     ;; prefer fiveam-asdf (ASDF integration) then fall back to fiveam
+;;     (or (ignore-errors (asdf:load-system :fiveam-asdf))
+;;         (ignore-errors (asdf:load-system :fiveam)))))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (unless (find-package :check-it)
-    (ignore-errors (asdf:load-system :check-it))))
+;; (eval-when (:compile-toplevel :load-toplevel :execute)
+;;   (unless (find-package :check-it)
+;;     (ignore-errors (asdf:load-system :check-it))))
 
 
 (asdf:defsystem #:easytree
