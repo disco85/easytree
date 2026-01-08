@@ -1,10 +1,22 @@
 (defpackage :acl2
   (:use :cl)
-  (:export :*fname-terms* :next-fname-event))
+  (:export
+   :next-fname
+   :next-fname-event
+   :*fname-terms*
+   *terminal-fname-terms*
+   *next-fname-events*))
 
 (defpackage :easytree
   (:use :cl)
   (:export :main))
 
 (defpackage :easytree-tests
-  (:use :cl :easytree))
+  (:use :cl :easytree)
+  (:import-from
+   :check-it
+   :check-it
+   :generator
+   :def-generator
+   :def-genex-macro
+   ))

@@ -4,10 +4,9 @@
 ;;     (or (ignore-errors (asdf:load-system :fiveam-asdf))
 ;;         (ignore-errors (asdf:load-system :fiveam)))))
 
-;; (eval-when (:compile-toplevel :load-toplevel :execute)
-;;   (unless (find-package :check-it)
-;;     (ignore-errors (asdf:load-system :check-it))))
-
+;(eval-when (:compile-toplevel :load-toplevel :execute)
+;  (unless (find-package :parachute)
+;    (ignore-errors (asdf:load-system :parachute))))
 
 (asdf:defsystem #:easytree
   :description "Reconstruct directory tree"
@@ -15,7 +14,7 @@
   :license  "GPL-3.0-or-later"
   :version "0.0.1"
   :serial t
-  :depends-on (:clingon)
+  :depends-on (:clingon :check-it)
   :components ((:file "package")
                (:file "utils")
                (:file "easytree"))

@@ -1,4 +1,5 @@
+dist quicklisp https://beta.quicklisp.org/dist/quicklisp/2024-10-12/distinfo.txt
 ql clingon
-ql check-it
 ql fiveam
 ql asdf-flv
+ql check-it

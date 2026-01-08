@@ -70,25 +70,14 @@
 
 (defun next-fname (st ev)
   (cond
-    ((and (eql st :decorations) (eql ev :dash))
-     (cons :dash nil))
-    ((and (eql st :decorations) (eql ev :decorations))
-     (cons :decorations nil))
-    ((and (eql st :decorations) (eql ev :space))
-     (cons :decorations nil))
-
-    ((and (eql st :dash) (eql ev :space))
-     (cons :space nil))
-    ((and (eql st :dash) (eql ev :dash))
-     (cons :dash nil))
-    ((and (eql st :dash) (eql ev :fnamechars))
-     (cons :fnamechars t))
-
-    ((and (eql st :space) (eql ev :fnamechars))
-     (cons :fnamechars t))
-
-    (t (cons :unexpected nil))))
-
+    ((and (eql st :decorations) (eql ev :dash))        (cons :dash nil))
+    ((and (eql st :decorations) (eql ev :decorations)) (cons :decorations nil))
+    ((and (eql st :decorations) (eql ev :space))       (cons :decorations nil))
+    ((and (eql st :dash) (eql ev :space))              (cons :space nil))
+    ((and (eql st :dash) (eql ev :dash))               (cons :dash nil))
+    ((and (eql st :dash) (eql ev :fnamechars))         (cons :fnamechars t))
+    ((and (eql st :space) (eql ev :fnamechars))        (cons :fnamechars t))
+    (t                                                 (cons :unexpected nil))))
 
 (defun next-fname-event (ch)
   (cond

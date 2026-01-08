@@ -79,143 +79,143 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Command line ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun cli-script-cmd-handler (cmd)
-  (declare (ignorable cmd))
-  (let* ((force-fmode (clingon:getopt cmd :fmode))
-         (strip (clingon:getopt cmd :strip))
-         (new-root (clingon:getopt cmd :prepend)))
-    (loop for line = (read-line *standard-input* nil nil)
-          while line
-          do
-             (setf line (string-trim *unicode-whitespace-chars* line))
-             (unless (emptyp line)
-               (format t "Parse line: ~A~%" line))
-          :finally
-             (format t "End"))))
+;; (defun cli-script-cmd-handler (cmd)
+;;   (declare (ignorable cmd))
+;;   (let* ((force-fmode (clingon:getopt cmd :fmode))
+;;          (strip (clingon:getopt cmd :strip))
+;;          (new-root (clingon:getopt cmd :prepend)))
+;;     (loop for line = (read-line *standard-input* nil nil)
+;;           while line
+;;           do
+;;              (setf line (string-trim *unicode-whitespace-chars* line))
+;;              (unless (emptyp line)
+;;                (format t "Parse line: ~A~%" line))
+;;           :finally
+;;              (format t "End"))))
 
-(defun cli-make-cmd-handler (cmd)
-  (declare (ignorable cmd))
-  (let* ((force-fmode (clingon:getopt cmd :fmode))
-         (strip (clingon:getopt cmd :strip))
-         (dry (clingon:getopt cmd :dry))
-         (verbose (clingon:getopt cmd :verbose))
-         (new-root (clingon:getopt cmd :prepend)))
-    (loop for line = (read-line *standard-input* nil nil)
-          while line
-          do
-             (setf line (string-trim *unicode-whitespace-chars* line))
-             (unless (emptyp line)
-               (format t "Parse line: ~A~%" line))
-          :finally
-             (format t "End"))))
+;; (defun cli-make-cmd-handler (cmd)
+;;   (declare (ignorable cmd))
+;;   (let* ((force-fmode (clingon:getopt cmd :fmode))
+;;          (strip (clingon:getopt cmd :strip))
+;;          (dry (clingon:getopt cmd :dry))
+;;          (verbose (clingon:getopt cmd :verbose))
+;;          (new-root (clingon:getopt cmd :prepend)))
+;;     (loop for line = (read-line *standard-input* nil nil)
+;;           while line
+;;           do
+;;              (setf line (string-trim *unicode-whitespace-chars* line))
+;;              (unless (emptyp line)
+;;                (format t "Parse line: ~A~%" line))
+;;           :finally
+;;              (format t "End"))))
 
-(defun cli-script-cmd-opts ()
-  (list
-   (clingon:make-option
-    :flag
-    :description "Set permissions (file mode) too"
-    :short-name #\m
-    :long-name "fmode"
-    :key :fmode)
-   (clingon:make-option
-    :flag
-    :description "Verbose"
-    :short-name #\v
-    :long-name "verbose"
-    :key :verbose)
-   (clingon:make-option
-    :integer
-    :description "Strip paths (N dirs up)"
-    :short-name #\s
-    :long-name "strip"
-    :initial-value 0
-    :key :strip)
-   (clingon:make-option
-    :string
-    :description "Prepend paths with common directory-prefix"
-    :short-name #\p
-    :long-name "prepend"
-    :key :prepend)))
+;; (defun cli-script-cmd-opts ()
+;;   (list
+;;    (clingon:make-option
+;;     :flag
+;;     :description "Set permissions (file mode) too"
+;;     :short-name #\m
+;;     :long-name "fmode"
+;;     :key :fmode)
+;;    (clingon:make-option
+;;     :flag
+;;     :description "Verbose"
+;;     :short-name #\v
+;;     :long-name "verbose"
+;;     :key :verbose)
+;;    (clingon:make-option
+;;     :integer
+;;     :description "Strip paths (N dirs up)"
+;;     :short-name #\s
+;;     :long-name "strip"
+;;     :initial-value 0
+;;     :key :strip)
+;;    (clingon:make-option
+;;     :string
+;;     :description "Prepend paths with common directory-prefix"
+;;     :short-name #\p
+;;     :long-name "prepend"
+;;     :key :prepend)))
 
-(defun cli-make-cmd-opts ()
-  (list
-   (clingon:make-option
-    :flag
-    :description "Set permissions (file mode) too"
-    :short-name #\m
-    :long-name "fmode"
-    :key :fmode)
-   (clingon:make-option
-    :flag
-    :description "Verbose"
-    :short-name #\v
-    :long-name "verbose"
-    :key :verbose)
-   (clingon:make-option
-    :flag
-    :description "Dry run"
-    :short-name #\d
-    :long-name "dry"
-    :key :dry)
-   (clingon:make-option
-    :integer
-    :description "Strip paths (N dirs up)"
-    :short-name #\s
-    :long-name "strip"
-    :initial-value 0
-    :key :strip)
-   (clingon:make-option
-    :string
-    :description "Prepend paths with common directory-prefix"
-    :short-name #\p
-    :long-name "prepend"
-    :key :prepend)))
+;; (defun cli-make-cmd-opts ()
+;;   (list
+;;    (clingon:make-option
+;;     :flag
+;;     :description "Set permissions (file mode) too"
+;;     :short-name #\m
+;;     :long-name "fmode"
+;;     :key :fmode)
+;;    (clingon:make-option
+;;     :flag
+;;     :description "Verbose"
+;;     :short-name #\v
+;;     :long-name "verbose"
+;;     :key :verbose)
+;;    (clingon:make-option
+;;     :flag
+;;     :description "Dry run"
+;;     :short-name #\d
+;;     :long-name "dry"
+;;     :key :dry)
+;;    (clingon:make-option
+;;     :integer
+;;     :description "Strip paths (N dirs up)"
+;;     :short-name #\s
+;;     :long-name "strip"
+;;     :initial-value 0
+;;     :key :strip)
+;;    (clingon:make-option
+;;     :string
+;;     :description "Prepend paths with common directory-prefix"
+;;     :short-name #\p
+;;     :long-name "prepend"
+;;     :key :prepend)))
 
-(defun cli-tests-cmd ()
-  (clingon:make-command
-   :name "tests"
-   :usage "<no args>"
-   :description "Run tests"
-   :handler #'cli-tests-handler))
+;; (defun cli-tests-cmd ()
+;;   (clingon:make-command
+;;    :name "tests"
+;;    :usage "<no args>"
+;;    :description "Run tests"
+;;    :handler #'cli-tests-handler))
 
-(defun cli-script-cmd ()
-  (clingon:make-command
-   :name "script"
-   :usage "[-s N] [-p DIR] [-v] [-m]"
-   :examples '(("Generate shell script:" . "script")
-               ("Generate shell script prepending it with a directory:" . "script -p x/y/z")
-               ("Generate shell script striping a directory by 2 levels:" . "script -s 2")
-               ("Generate shell script with mode setting" . "script -m"))
-   :description "Generate a Linux shell script reproducing the directory tree"
-   :handler #'cli-script-cmd-handler
-   :options (cli-script-cmd-opts)))
+;; (defun cli-script-cmd ()
+;;   (clingon:make-command
+;;    :name "script"
+;;    :usage "[-s N] [-p DIR] [-v] [-m]"
+;;    :examples '(("Generate shell script:" . "script")
+;;                ("Generate shell script prepending it with a directory:" . "script -p x/y/z")
+;;                ("Generate shell script striping a directory by 2 levels:" . "script -s 2")
+;;                ("Generate shell script with mode setting" . "script -m"))
+;;    :description "Generate a Linux shell script reproducing the directory tree"
+;;    :handler #'cli-script-cmd-handler
+;;    :options (cli-script-cmd-opts)))
 
-(defun cli-make-cmd ()
-  (clingon:make-command
-   :name "make"
-   :usage "[-s N] [-p DIR] [-v] [-m] [-d]"
-   :examples '(("Make a tree:" . "script")
-               ("Make a tree prepending it with a directory:" . "script -p x/y/z")
-               ("Make a tree striping a directory by 2 levels:" . "script -s 2")
-               ("Make a tree with mode setting" . "script -m")
-               ("Simulate making a tree (dry mode)" . "script -d"))
-   :description "Reproduce (make) directories and files"
-   :handler #'cli-make-cmd-handler
-   :options (cli-make-cmd-opts)))
+;; (defun cli-make-cmd ()
+;;   (clingon:make-command
+;;    :name "make"
+;;    :usage "[-s N] [-p DIR] [-v] [-m] [-d]"
+;;    :examples '(("Make a tree:" . "script")
+;;                ("Make a tree prepending it with a directory:" . "script -p x/y/z")
+;;                ("Make a tree striping a directory by 2 levels:" . "script -s 2")
+;;                ("Make a tree with mode setting" . "script -m")
+;;                ("Simulate making a tree (dry mode)" . "script -d"))
+;;    :description "Reproduce (make) directories and files"
+;;    :handler #'cli-make-cmd-handler
+;;    :options (cli-make-cmd-opts)))
 
 
-(defun cli-main-cmd ()
-  (clingon:make-command
-   :name "tree"
-   :description "File system tree reproducing"
-   :version "0.1.0"
-   :authors '("John Doe <john.doe@example.org>")
-   :license "BSD 2-Clause"
-   :sub-commands (list (cli-script-cmd) (cli-make-cmd))
-   :handler (lambda (cmd)
-              (format t "No known subcommand provided!~%~%")
-              (clingon:print-usage cmd *standard-output*)
-              (uiop:quit 1))))
+;; (defun cli-main-cmd ()
+;;   (clingon:make-command
+;;    :name "tree"
+;;    :description "File system tree reproducing"
+;;    :version "0.1.0"
+;;    :authors '("John Doe <john.doe@example.org>")
+;;    :license "BSD 2-Clause"
+;;    :sub-commands (list (cli-script-cmd) (cli-make-cmd))
+;;    :handler (lambda (cmd)
+;;               (format t "No known subcommand provided!~%~%")
+;;               (clingon:print-usage cmd *standard-output*)
+;;               (uiop:quit 1))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Main ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -223,5 +223,6 @@
   (let* ((*OS* (det-*OS*))
          (*path-sep* (det-*path-sep*))
          (argv (uiop:command-line-arguments)))
-    (clingon:run (cli-main-cmd) argv)))
-
+    ;; (clingon:run (cli-main-cmd) argv)
+    (print "Hello world")
+    ))
