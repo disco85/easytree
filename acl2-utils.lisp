@@ -89,3 +89,32 @@
 ;; Similar to previous but checking particular domain of `next-fname-event`:
 (defthm next-fname-event--domain
   (member (next-fname-event ch) *fname-terms*))
+
+
+
+
+
+
+;;---------------------------
+
+
+
+(defconst *events* '(:decorations :dash :space :fnamechars))
+
+(defun terminal-state-p (st)
+  (or (equal st :unexpected)
+      (equal st :fnamechars)))
+
+(defthm events-are-true-list (true-listp *events*))
+
+(defun can-leave-p (st evs)
+  (declare (xargs :measure (len evs) :guard (true-listp evs) :verify-guards nil))
+  (if (endp evs)
+      nil
+    (or (not (equal (car (next-fname st (car evs))) st))
+        (can-leave-p st (cdr evs)))))
+
+(defthm non-terminal-states-can-leave
+  (implies (and (member-eq st *fname-terms*)
+                (not (terminal-state-p st)))
+           (can-leave-p st *events*)))
