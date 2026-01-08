@@ -63,6 +63,11 @@
 #-acl2
 (defparameter *terminal-fname-terms* '(:fnamechars :unexpected))
 
+#+acl2
+(defconst *next-fname-events* '(:decorations :dash :space :fnamechars))
+#-acl2
+(defparameter *next-fname-events* '(:decorations :dash :space :fnamechars))
+
 (defun next-fname (st ev)
   (cond
     ((and (eql st :decorations) (eql ev :dash))

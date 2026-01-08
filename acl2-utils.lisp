@@ -4,6 +4,10 @@
 
 (include-book "utils")
 
+;; =================================================================================================
+;; pop-until verification
+;; =================================================================================================
+
 ;; "pop-until-zero" is pop-until some item is zerop (predicate: equals to zero)
 (def-pop-until pop-until-zero some-item-zerop :criteria zerop)
 
@@ -58,6 +62,10 @@
 ;;            (= (len (pop-until-zero stack stack t))
 ;;               0)))
 
+;; =================================================================================================
+;; next-fname verification
+;; =================================================================================================
+
 ;; Short alias - it calls FSM next step but ACL2 just uses it for rewrite:
 (defun next-fname-state (st ev)
   (car (next-fname st ev)))
@@ -90,34 +98,26 @@
 (defthm next-fname-event--domain
   (member (next-fname-event ch) *fname-terms*))
 
+(defthm next-fname-events--are-true-list
+    (true-listp *next-fname-events*))
 
-
-
-
-
-;;---------------------------
-
-
-
-(defconst *events* '(:decorations :dash :space :fnamechars))
-
-(defthm events-are-true-list
-    (true-listp *events*))
-
-(defun can-leave-p (st evs)
+(defun next-fname--state-can-be-left-on-some-of-events (st evs)
+  "Predicate that state ST can be left on some event from a list of events EVS"
   ;; XXX `:measure (len evs)` gives a metrics of a function progress: if it does not change -
-  ;;     it is treated as live-lock (inf. loop), it allows to detect inf. recursion of can-leave-p.
+  ;;     it is treated as live-lock (inf. loop), it allows to detect inf. recursion of
+  ;;     `next-fname--state-can-be-left-on-some-of-events`.
   ;; XXX `:guard (true-listp evs)` says that `evs` is not cons but proper list, it means that:
   ;;     `(len (cdr evs)) <= (len evs)`, it helps ACL2 to change the measure/metrics on each step.
   ;;     Also it helps to prevent ACL2 from checking when `evs` is string, assoc, etc (it does it).
   ;; XXX It's possible to work without this `(declare ...)` and `events-are-true-list` at all!
-  ;; XXX `:verify-guards nil` tells ACL2 not to satisfy guards of funcs called inside `can-leave-p`.
+  ;; XXX `:verify-guards nil` tells ACL2 not to satisfy guards of funcs called inside
+  ;;     `next-fname--state-can-be-left-on-some-of-events`.
   ;;     If to use this `(declare ...)` at all - it's needed, else - fails: `next-fname` has implicit
   ;;     guards and it's pain for ACL2 to prove them, they are:
   ;;     - `evs` is true list
-  ;;     - elements of `*events*` are symbols:
+  ;;     - elements of `*next-fname-events*` are symbols:
   ;;         (defthm events-elements-are-symbols
-  ;;             (implies (member-eq ev *events*)
+  ;;             (implies (member-eq ev *next-fname-events*)
   ;;                      (symbolp ev)))
   ;;     - `next-fname` always returns cons:
   ;;         (defthm next-fname-returns-cons
@@ -134,11 +134,16 @@
   ;;
   (declare (xargs :measure (len evs) :guard (true-listp evs) :verify-guards nil))
   (if (endp evs)
+      ;; No, the state cannot be left w/o events:
       nil
-    (or (not (equal (car (next-fname st (car evs))) st))
-        (can-leave-p st (cdr evs)))))
+      ;; or the first event (`car evs`) was enough: `next-fname`
+      ;; leaves the current state (it is CHANGED on `car evs`):
+      (or (not (equal (next-fname-state st (car evs)) st))
+          ;; or it happens somewhere further down the list of events:
+          (next-fname--state-can-be-left-on-some-of-events st (cdr evs)))))
 
-(defthm non-terminal-states-can-leave
-  (implies (and (member-eq st *fname-terms*)
-                (not (member-eq st *terminal-fname-terms*)))
-           (can-leave-p st *events*)))
+;; All states of `next-fname` FSM can be left if they are not terminal:
+(defthm next-fname--non-terminal-states-can-be-left
+    (implies (and (member-eq st *fname-terms*)
+                  (not (member-eq st *terminal-fname-terms*)))
+             (next-fname--state-can-be-left-on-some-of-events st *next-fname-events*)))
