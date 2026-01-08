@@ -101,13 +101,37 @@
 
 (defconst *events* '(:decorations :dash :space :fnamechars))
 
-(defun terminal-state-p (st)
-  (or (equal st :unexpected)
-      (equal st :fnamechars)))
-
-(defthm events-are-true-list (true-listp *events*))
+(defthm events-are-true-list
+    (true-listp *events*))
 
 (defun can-leave-p (st evs)
+  ;; XXX `:measure (len evs)` gives a metrics of a function progress: if it does not change -
+  ;;     it is treated as live-lock (inf. loop), it allows to detect inf. recursion of can-leave-p.
+  ;; XXX `:guard (true-listp evs)` says that `evs` is not cons but proper list, it means that:
+  ;;     `(len (cdr evs)) <= (len evs)`, it helps ACL2 to change the measure/metrics on each step.
+  ;;     Also it helps to prevent ACL2 from checking when `evs` is string, assoc, etc (it does it).
+  ;; XXX It's possible to work without this `(declare ...)` and `events-are-true-list` at all!
+  ;; XXX `:verify-guards nil` tells ACL2 not to satisfy guards of funcs called inside `can-leave-p`.
+  ;;     If to use this `(declare ...)` at all - it's needed, else - fails: `next-fname` has implicit
+  ;;     guards and it's pain for ACL2 to prove them, they are:
+  ;;     - `evs` is true list
+  ;;     - elements of `*events*` are symbols:
+  ;;         (defthm events-elements-are-symbols
+  ;;             (implies (member-eq ev *events*)
+  ;;                      (symbolp ev)))
+  ;;     - `next-fname` always returns cons:
+  ;;         (defthm next-fname-returns-cons
+  ;;           (implies (and (symbolp st) (symbolp ev))
+  ;;                    (consp (next-fname st ev))))
+  ;;     - car of `next-fname` result is a symbol:
+  ;;         (defthm next-fname-car-is-symbol
+  ;;           (implies (and (symbolp st) (symbolp ev))
+  ;;                    (symbolp (car (next-fname st ev)))))
+  ;;     - optionally list's length lemma:
+  ;;         (defthm len-cdr-less
+  ;;           (implies (consp evs)
+  ;;                    (< (len (cdr evs)) (len evs))))
+  ;;
   (declare (xargs :measure (len evs) :guard (true-listp evs) :verify-guards nil))
   (if (endp evs)
       nil
@@ -116,5 +140,5 @@
 
 (defthm non-terminal-states-can-leave
   (implies (and (member-eq st *fname-terms*)
-                (not (terminal-state-p st)))
+                (not (member-eq st *terminal-fname-terms*)))
            (can-leave-p st *events*)))

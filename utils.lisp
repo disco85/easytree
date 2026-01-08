@@ -50,12 +50,18 @@
 ;;          ((,criteria (car stack)) t)
 ;;          (t (,pred-name (cdr stack))))))))
 
-(def-pop-until pop-until-equal-zero some-pop-until-equal-zero :criteria zerop)
+;; (def-pop-until pop-until-equal-zero some-pop-until-equal-zero :criteria zerop)
 
 #+acl2
-(defconst *fname-terms* '(:decorations :dash :space :fnamechars))
+(defconst *fname-terms* '(:decorations :dash :space :fnamechars :unexpected))
 #-acl2
-(defparameter *fname-terms* '(:decorations :dash :space :fnamechars))
+(defparameter *fname-terms* '(:decorations :dash :space :fnamechars :unexpected))
+
+;; *terminal-fname-terms* is good for ACL2 proof, but I keep it here, maybe for some future usage:
+#+acl2
+(defconst *terminal-fname-terms* '(:fnamechars :unexpected))
+#-acl2
+(defparameter *terminal-fname-terms* '(:fnamechars :unexpected))
 
 (defun next-fname (st ev)
   (cond
