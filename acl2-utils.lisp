@@ -234,6 +234,7 @@ that for every event from `evs` the swith is not loop and the next state is vali
 (defthm next-fname--total
   (implies (and (member-eq st *fname-terms*)
                 (member-eq ev *next-fname-events*))
+           ;; totality, ie the result is CONSP, ie, never NIL:
            (consp (next-fname st ev))))
 
 ;; More general totality of NEXT-FNAME:
