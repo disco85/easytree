@@ -142,8 +142,28 @@
           ;; or it happens somewhere further down the list of events:
           (next-fname--state-can-be-left-on-some-of-events st (cdr evs)))))
 
-;; All states of `next-fname` FSM can be left if they are not terminal:
+;; All states of `next-fname` FSM can be left if they are not terminal or more
+;; accurate: FOR EACH NON-TERMINAL STATE, THERE EXISTS AN EVENT THAT CHANGES THE STATE,
+;; or the non-terminal state can be left on some event:
 (defthm next-fname--non-terminal-states-can-be-left
     (implies (and (member-eq st *fname-terms*)
                   (not (member-eq st *terminal-fname-terms*)))
              (next-fname--state-can-be-left-on-some-of-events st *next-fname-events*)))
+
+(defun next-fname--state-has-valid-exit (st evs)
+  "Helper recursive function: switch to another state on event from `evs`: event by event and check
+that for every event from `evs` the swith is not loop and the next state is valid one"
+  ;; XXX to provoke failure: comment in `next-fname` FSM path from some state to valid state
+  (if (endp evs)
+      nil
+      (or (let ((next (next-fname-state st (car evs))))
+            ;; `next` state is not the same as `st`, ie it is not a loop:
+            (and (not (equal next st))
+                 ;; next state is valid state":
+                 (not (member-eq next *fname-invalid-terms*))))
+          (next-fname--state-has-valid-exit st (cdr evs)))))
+
+(defthm next-fname--non-terminal-states-have-valid-exit
+    (implies (and (member-eq st *fname-terms*)
+                  (not (member-eq st *terminal-fname-terms*)))
+             (next-fname--state-has-valid-exit st *next-fname-events*)))

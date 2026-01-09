@@ -57,6 +57,15 @@
 #-acl2
 (defparameter *fname-terms* '(:decorations :dash :space :fnamechars :unexpected))
 
+;; #+acl2
+;; (defconst *fname-valid-terms* '(:decorations :dash :space :fnamechars))
+;; #-acl2
+;; (defparameter *fname-valid-terms* '(:decorations :dash :space :fnamechars))
+#+acl2
+(defconst *fname-invalid-terms* '(:unexpected))
+#-acl2
+(defparameter *fname-invalid-terms* '(:unexpected))
+
 ;; *terminal-fname-terms* is good for ACL2 proof, but I keep it here, maybe for some future usage:
 #+acl2
 (defconst *terminal-fname-terms* '(:fnamechars :unexpected))
