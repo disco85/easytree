@@ -17,6 +17,7 @@
    :check-it
    :check-it
    :generator
+   :integer
    :def-generator
    :def-genex-macro
    ))
