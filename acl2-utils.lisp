@@ -74,6 +74,14 @@
 (defun next-fname-ended-p (st ev)
   (cdr (next-fname st ev)))
 
+;; Runs FSM from state ST event by event (from `EVS`) end returns the last state, ie
+;; answers to "from state ST after run all events - what state do we end up in?"
+(defun next-fname-run (st evs)
+  (if (endp evs)
+      st
+    (next-fname-run (next-fname-state st (car evs))
+                    (cdr evs))))
+
 ;; Loops are in :decorations :dash only ("loops" mean don't stop, ie, ended-p is false and
 ;; stays in the same state, ie new-st = st):
 (defthm next-fname--loops
@@ -167,3 +175,73 @@ that for every event from `evs` the swith is not loop and the next state is vali
     (implies (and (member-eq st *fname-terms*)
                   (not (member-eq st *terminal-fname-terms*)))
              (next-fname--state-has-valid-exit st *next-fname-events*)))
+
+;; Reachability: :fnamechars is reachable from :decorations (there is exit from the labyrinth):
+(defthm next-fname--reach-fnamechars-from-decorations
+    (next-fname--state-has-valid-exit :decorations *next-fname-events*))
+
+;; General reachability: FSM next-fname never leaves known states/terms of FSM (domain of func):
+(defthm next-fname--reachable-states-are-known
+    (implies (and (member-eq st *fname-terms*)
+                  (true-listp evs))
+             (member-eq (next-fname-run st evs)
+                        *fname-terms*)))
+
+;; Invariant: if next-fname ended (it returns a flag of correct end!), it is always in fnamechars:
+(defthm next-fname--run-ended-implies-fnamechars
+    (implies (next-fname-ended-p (next-fname-run st evs)
+                                 (car evs))
+             (equal (next-fname-run st evs)
+                    :fnamechars)))
+
+;; Invariant: once NEXT-FNAME leave :decorations, you never return to it.
+(defthm next-fname--never-return-to-decorations
+  (implies (and (equal st :decorations)
+                (not (equal (next-fname-state st ev) :decorations)))
+           (not (equal (next-fname-state (next-fname-state st ev) ev2)
+                       :decorations))))
+
+;; Determinism: NEXT-FNAME always switch to the same:
+(defthm next-fname-unique-next-state
+  (implies (and (equal (next-fname st ev) x)
+                (equal (next-fname st ev) y))
+           (equal x y))
+  ;; XXX without this ACL2 fails with:
+  ;;       A :REWRITE rule generated from NEXT-FNAME--DETERMINISTIC is illegal
+  ;;       because it rewrites the term (NEXT-FNAME ST EV) to itself!
+  ;;     Bcs ACL2 refuses rewrite rules of the form:
+  ;;       (next-fname st ev) -> (next-fname st ev)
+  ;;     so we disable rewrite rule: this proves determinism without creating a rewrite rule.
+  ;; XXX Why it happens? Bcs ACL2 tries to turn any theorem into a rewrite rule unless
+  ;;     you tell it not to, as:
+  ;;       (lhs) -> (rhs)
+  ;;     ACL2 sees:
+  ;;       (implies (and (equal A x)
+  ;;                     (equal A y))
+  ;;                (equal x y))
+  ;;     And without to detect tautologies, brutally it follows the algorithm:
+  ;;       x = y. lhs will be x. rhs will be y. x is A. y is A. So lhs=A, rhs=A, so
+  ;;       (lhs) -> (rhs) => A -> A.    <--- this leads to the loop!
+  ;;     ACL2 tries to extract such a rule from the theorem. After macroexpansion ACL2 tries to
+  ;;     extract:  (equal (next-fname st ev) x) -> (equal (next-fname st ev) y)  bcs call results
+  ;;     are the same. And it ends with:
+  ;;       (next-fname st ev) -> (next-fname st ev)
+  ;;     But such rule is endless/loop, ie illegal, so - failure! We disable it.
+  ;; XXX EVERY DEFTHM BECOMES A REWRITE RULE BY DEFAULT. ACL2 IS A TERM-REWRITING THEOREM PROVER.
+  :rule-classes nil)
+
+;; Totality of transition function of NEXT-FNAME (before we proved the totality of event function):
+(defthm next-fname--total
+  (implies (and (member-eq st *fname-terms*)
+                (member-eq ev *next-fname-events*))
+           (consp (next-fname st ev))))
+
+;; More general totality of NEXT-FNAME:
+;; - every valid state + event pair has a next state
+;; - the next state is always valid
+;; - the FSM is closed under transitions
+(defthm next-fname-state-total
+  (implies (and (member-eq st *fname-terms*)
+                (member-eq ev *next-fname-events*))
+           (member-eq (next-fname-state st ev)
+                      *fname-terms*)))
