@@ -13,6 +13,7 @@
 
 (defpackage :easytree-tests
   (:use :cl :easytree)
+  (:shadowing-import-from :check-it :tuple :generate)
   (:import-from
    :check-it
    :check-it

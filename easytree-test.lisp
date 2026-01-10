@@ -179,14 +179,15 @@
     `(let ((,g ,gen-spec))
        (ignore-errors
          (loop repeat check-it::*num-trials*
-               for ,val = (check-it::generate ,g)
+               for ,val = (generate ,g)
                when (let ((,var ,val)) (progn ,@body))
                  do (return ,val)
                finally (return nil))))))
 
 (5am:test test-exists
-  (5am:is (exists-it x (check-it::generator (integer 91 92)) ;;(bounded-int 91 92))
-             (> x 90))))
+  (5am:is (exists-it x (generator (tuple (integer 91 92) (integer 91 92))) ;;(bounded-int 91 92))
+            ;; (format t "!!!!!!!!!!!!!!!!!!!! ~A~%" x)
+            (> (car x) 90))))
 
 
 ;; Example how to define my own/custom generator (it does not cache values):
