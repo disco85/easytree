@@ -142,8 +142,11 @@
 ;;     (or message
 ;;         "Expected at least one generated value to satisfy the property.")))
 
-(def-generator non-terminal-fname-terms-gen () (generator (check-it::or :decorations :dash :space)))
-(def-generator fname-events-gen () (generator (check-it::or :decorations :dash :space :fnamechars)))
+;; (def-generator non-terminal-fname-terms-gen () (generator (check-it::or :decorations :dash :space)))
+(def-generator non-terminal-fname-terms-gen () (eval `(generator (check-it::or ,@acl2::*fname-terms*))))
+
+;; (def-generator fname-events-gen () (generator (check-it::or :decorations :dash :space :fnamechars)))
+(def-generator non-terminal-fname-terms-gen () (eval `(generator (check-it::or ,@acl2::*next-fname-events*))))
 (defparameter fname-non-terminal-transitions-gen
   (generator (check-it::tuple (non-terminal-fname-terms-gen) (fname-events-gen))))
 
