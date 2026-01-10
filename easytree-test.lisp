@@ -48,7 +48,7 @@
 ;; (defmacro check-it-exists ((var generator) &body body)
 ;;   "Runs a property test over generated values and succeeds if the property holds for at least one value.
 ;; Example:
-;; (exists-it (x (integer 0 100))
+;; (it-exists (x (integer 0 100))
 ;;   (and (evenp x) (> x 90)))
 ;; "
 ;;   (let ((found (gensym "FOUND")))
@@ -62,7 +62,7 @@
 ;;            (format t "✓ Existential property held for at least one value.~%")
 ;;            (error "✗ Existential property did NOT hold for any value.")))))
 
-;; (defmacro exists-it ((var generator) &body body)
+;; (defmacro it-exists ((var generator) &body body)
 ;;   "Checks if there exists at least one generated value for which the property holds.
 ;;    Reports the first satisfying example if found."
 ;;   (let ((found (gensym "FOUND"))
@@ -81,7 +81,7 @@
 ;;        (when ,found
 ;;          (format t "✓ Existential property held for ~A~%" ,example)))))
 
-;; (defmacro exists-it ((var generator) &body body)
+;; (defmacro it-exists ((var generator) &body body)
 ;;   "Return T if at least one generated value satisfies BODY, else NIL."
 ;;   (let ((found (gensym "FOUND"))
 ;;         (example (gensym "EXAMPLE")))
@@ -96,7 +96,7 @@
 ;;        (when ,found
 ;;          (format t "✓ Existential property held for ~A~%" ,example))
 ;;        ,found)))
-;; (defmacro exists-it ((var generator) &body body)
+;; (defmacro it-exists ((var generator) &body body)
 ;;   (let ((found (gensym "FOUND"))
 ;;         (example (gensym "EXAMPLE")))
 ;;     `(let ((,found nil)
@@ -109,7 +109,7 @@
 ;;            t))
 ;;        ,found)))
 
-;; (defmacro exists-it ((var generator) &body body)
+;; (defmacro it-exists ((var generator) &body body)
 ;;   (let ((found   (gensym "FOUND"))
 ;;         (example (gensym "EXAMPLE")))
 ;;     `(let ((,found nil)
@@ -122,7 +122,7 @@
 ;;            t))
 ;;        ,found)))
 
-;; (defmacro exists-it ((var generator) &body body)
+;; (defmacro it-exists ((var generator) &body body)
 ;;   "Returns T if at least one generated value satisfies BODY, else NIL.
 ;;    Use inside a function or lambda to avoid premature macroexpansion."
 ;;   (let ((found (gensym "FOUND"))
@@ -146,9 +146,30 @@
 (def-generator non-terminal-fname-terms-gen () (eval `(generator (check-it::or ,@acl2::*fname-terms*))))
 
 ;; (def-generator fname-events-gen () (generator (check-it::or :decorations :dash :space :fnamechars)))
-(def-generator non-terminal-fname-terms-gen () (eval `(generator (check-it::or ,@acl2::*next-fname-events*))))
+(def-generator fname-events-gen () (eval `(generator (check-it::or ,@acl2::*next-fname-events*))))
 (defparameter fname-non-terminal-transitions-gen
-  (generator (check-it::tuple (non-terminal-fname-terms-gen) (fname-events-gen))))
+  (generator (tuple (non-terminal-fname-terms-gen) (fname-events-gen))))
+
+(5am:test
+    next-fname--non-terminal-states-have-valid-exit
+  (5am:is
+   (every (lambda (old-st)
+            (some (lambda (ev)
+                    (let* ((new-st (car (acl2::next-fname old-st ev))))
+                      (and (not (eql new-st :unexpected))
+                           (not (eql new-st old-st)))))
+                  acl2::*next-fname-events*))
+          (set-difference acl2::*fname-terms* acl2::*terminal-fname-terms* :test #'eql))))
+
+;; (5am:test next-fname-1
+;;   (5am:is (it-exists trans fname-non-terminal-transitions-gen
+;;             (let* ((from-state (car trans))
+;;                    (on-event (cadr trans))
+;;                    (res (acl2::next-fname from-state on-event))
+;;                    (new-state (car res)))
+;;               (format t "!!!!!!!!!!!!!!!!!!!! ~A -> ~A~%" trans new-state)
+;;               (and (not (eql new-state :unexpected))
+;;                    (not (eql new-state from-state)))))))
 
 ;; XXX Existing check-it::int-generator misses generate method (lib is incomplete and abandoned):
 ;; (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -176,7 +197,7 @@
                              *valid-next-states*
                              :test #'eql)))))))
 
-(defmacro exists-it (var gen-spec &body body)
+(defmacro it-exists (var gen-spec &body body)
   (let ((g (gensym "GEN"))
         (val (gensym "VAL")))
     `(let ((,g ,gen-spec))
@@ -188,7 +209,7 @@
                finally (return nil))))))
 
 (5am:test test-exists
-  (5am:is (exists-it x (generator (tuple (integer 91 92) (integer 91 92))) ;;(bounded-int 91 92))
+  (5am:is (it-exists x (generator (tuple (integer 91 92) (integer 91 92))) ;;(bounded-int 91 92))
             ;; (format t "!!!!!!!!!!!!!!!!!!!! ~A~%" x)
             (> (car x) 90))))
 
@@ -216,11 +237,11 @@
 
 
 ;; (5am:test next-fname-never-stuck1
-;;   (5am:is (exists-it (x (integer 0 100))
+;;   (5am:is (it-exists (x (integer 0 100))
 ;;             (> x 90))))
 ;; (5am:test next-fname-never-stuck
 ;;   (5am:exists
-;;     (exists-it (x (integer 0 100))
+;;     (it-exists (x (integer 0 100))
 ;;       (> x 90))))
 
 ;; (defun make-state-event-generator ()

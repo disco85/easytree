@@ -241,7 +241,7 @@ that for every event from `evs` the swith is not loop and the next state is vali
 ;; - every valid state + event pair has a next state
 ;; - the next state is always valid
 ;; - the FSM is closed under transitions
-(defthm next-fname-state-total
+(defthm next-fname--state-total
   (implies (and (member-eq st *fname-terms*)
                 (member-eq ev *next-fname-events*))
            (member-eq (next-fname-state st ev)
