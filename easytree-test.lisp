@@ -161,6 +161,17 @@
                   acl2::*next-fname-events*))
           (set-difference acl2::*fname-terms* acl2::*terminal-fname-terms* :test #'eql))))
 
+(5am:test
+    next-fname--reach-fnamechars-from-decorations
+  (labels ((prop (st_i)
+             (some (lambda (ev_i)
+                     (let ((st_i+1 (car (acl2::next-fname st_i ev_i))))
+                       (and (not (eql st_i st_i+1))
+                            (or (eql st_i+1 :fnamechars)
+                                (prop st_i+1)))))
+                   acl2::*next-fname-events*)))
+    (5am:is (prop :decorations))))
+
 ;; (5am:test next-fname-1
 ;;   (5am:is (it-exists trans fname-non-terminal-transitions-gen
 ;;             (let* ((from-state (car trans))
