@@ -163,6 +163,7 @@
 
 (5am:test
     next-fname--reach-fnamechars-from-decorations
+  ;; prop(st_i) := ∃ ev_i ∈ *next-fname-events*, next-fname(:decoration, ev_i) = :fnamechars ∨ prop(next_fname(st_i))
   (labels ((prop (st_i)
              (some (lambda (ev_i)
                      (let ((st_i+1 (car (acl2::next-fname st_i ev_i))))
