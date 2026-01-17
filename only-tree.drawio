@@ -1,6 +1,6 @@
 <mxfile host="Electron" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.0.3 Chrome/140.0.7339.249 Electron/38.7.0 Safari/537.36" version="29.0.3" pages="2">
   <diagram name="По строкам" id="1oEh4bObZY7mk8KyWfeZ">
-    <mxGraphModel dx="1042" dy="702" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1181" pageHeight="1142" math="0" shadow="0">
+    <mxGraphModel dx="1426" dy="911" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1181" pageHeight="1142" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -31,7 +31,7 @@
         <mxCell id="AADt5ugqK_E--YkoXtDP-62" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#66B2FF;" parent="1" source="AADt5ugqK_E--YkoXtDP-8" target="AADt5ugqK_E--YkoXtDP-61" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="AADt5ugqK_E--YkoXtDP-8" value="В контекст:&lt;div&gt;отступ, имя&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;strokeColor=default;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=19;" parent="1" vertex="1">
+        <mxCell id="AADt5ugqK_E--YkoXtDP-8" value="В стек:&lt;div&gt;(отступ, имя)&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;strokeColor=default;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=19;" parent="1" vertex="1">
           <mxGeometry x="380" y="60" width="126" height="50" as="geometry" />
         </mxCell>
         <mxCell id="AADt5ugqK_E--YkoXtDP-22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#66B2FF;" parent="1" source="AADt5ugqK_E--YkoXtDP-13" target="AADt5ugqK_E--YkoXtDP-19" edge="1">
@@ -52,7 +52,7 @@
         <mxCell id="AADt5ugqK_E--YkoXtDP-23" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;strokeColor=#66B2FF;" parent="1" source="AADt5ugqK_E--YkoXtDP-19" target="AADt5ugqK_E--YkoXtDP-20" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="AADt5ugqK_E--YkoXtDP-19" value="Извлечь из контекста все до этого отступа включительно" style="text;html=1;whiteSpace=wrap;strokeColor=default;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=19;" parent="1" vertex="1">
+        <mxCell id="AADt5ugqK_E--YkoXtDP-19" value="Извлечь из стека все до этого отступа включительно" style="text;html=1;whiteSpace=wrap;strokeColor=default;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=19;" parent="1" vertex="1">
           <mxGeometry x="600" y="312" width="126" height="130" as="geometry" />
         </mxCell>
         <mxCell id="AADt5ugqK_E--YkoXtDP-20" value="Путь: сцепить имя с текущим путем из контекста" style="text;html=1;whiteSpace=wrap;strokeColor=default;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=19;" parent="1" vertex="1">
@@ -61,7 +61,7 @@
         <mxCell id="AADt5ugqK_E--YkoXtDP-43" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#66B2FF;" parent="1" source="AADt5ugqK_E--YkoXtDP-21" target="AADt5ugqK_E--YkoXtDP-27" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="AADt5ugqK_E--YkoXtDP-21" value="В контекст:&lt;div&gt;отступ, имя&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;strokeColor=default;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=19;" parent="1" vertex="1">
+        <mxCell id="AADt5ugqK_E--YkoXtDP-21" value="В стек:&lt;div&gt;(отступ, имя)&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;strokeColor=default;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=19;" parent="1" vertex="1">
           <mxGeometry x="960" y="342" width="126" height="70" as="geometry" />
         </mxCell>
         <mxCell id="AADt5ugqK_E--YkoXtDP-24" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;strokeColor=#66B2FF;" parent="1" source="AADt5ugqK_E--YkoXtDP-20" target="AADt5ugqK_E--YkoXtDP-21" edge="1">
@@ -90,7 +90,7 @@
         <mxCell id="AADt5ugqK_E--YkoXtDP-68" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#66B2FF;" parent="1" source="AADt5ugqK_E--YkoXtDP-54" target="AADt5ugqK_E--YkoXtDP-27" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="AADt5ugqK_E--YkoXtDP-54" value="В контексте поменять текущее имя" style="text;html=1;whiteSpace=wrap;strokeColor=default;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=19;" parent="1" vertex="1">
+        <mxCell id="AADt5ugqK_E--YkoXtDP-54" value="В стеке поменять текущее имя" style="text;html=1;whiteSpace=wrap;strokeColor=default;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=19;" parent="1" vertex="1">
           <mxGeometry x="791" y="170" width="126" height="70" as="geometry" />
         </mxCell>
         <mxCell id="AADt5ugqK_E--YkoXtDP-63" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#66B2FF;" parent="1" source="AADt5ugqK_E--YkoXtDP-61" target="AADt5ugqK_E--YkoXtDP-27" edge="1">

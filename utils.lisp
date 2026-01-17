@@ -1,4 +1,4 @@
-(in-package "ACL2")
+(in-package "ACL2")  ;; functions are provable in ACL2 and must be in this package to be recognized by ACL2
 
 ;; (defun make-symbol-like (base suffix)
 ;;   #+acl2
@@ -94,3 +94,25 @@
     ((member ch (coerce "─-" 'list)) :dash)
     ((member ch (coerce " 	" 'list)) :space)
     ((not (member ch (coerce " 	" 'list))) :fnamechars)))
+
+#+acl2
+(defun split-string-at (str num)
+  (declare (xargs :guard (and (stringp str)
+                              (natp num)
+                              (<= num (length str)))))
+  (let* ((char-list (coerce str 'list))
+         (first-part (take num char-list))
+         (second-part (nthcdr num char-list)))
+    (cons (coerce first-part 'string)
+          (coerce second-part 'string))))
+#-acl2
+(declaim (ftype (function (string integer) cons) split-string-at))
+#-acl2
+(defun split-string-at (str num)
+  "Signals a condition if NUM is out of bounds of STR, else returns (str-before-num . str-after-num)
+treating NUM index in the same way as Python does it"
+  (cons (subseq str 0 num) (subseq str num)))
+
+;; (def-pop-until pop-until-same-indent some-pop-until-equal-zero :criteria zerop)
+;; (defun extract-fname-and-indent-1 (str st) ;; TODO
+;;   ())
