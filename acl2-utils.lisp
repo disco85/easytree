@@ -8,12 +8,15 @@
 ;; pop-until verification
 ;; =================================================================================================
 
+(defun until-el-p (crit-el el)
+  (= crit-el el))
+
 ;; "pop-until-zero" is pop-until some item is zerop (predicate: equals to zero)
-(def-pop-until pop-until-zero some-item-zerop :criteria zerop)
+(def-pop-until pop-until-zero some-item-zerop :criteria until-el-p)
 
 ;; Pop never expands/increase size of a stack
 (defthm pop-until-zero--never-expands
-  (<= (len (pop-until-zero stack include))
+  (<= (len (pop-until-zero stack 0 include))
       (len stack)))
 
 ;; Lemma: NIL is not :not-found. Coz it's obvious, ACL2 will create
@@ -38,22 +41,22 @@
 ;; If elem exists (see: some-item-zerop stack), the stack after pop shrinks
 ;; (defthm pop-until-zero--shrinks-if-elem-exists
 ;;     (implies (and (true-listp stack)
-;;                   (some-item-zerop stack))
-;;              (< (len (pop-until-zero stack t))
+;;                   (some-item-zerop stack 0))
+;;              (< (len (pop-until-zero stack 0 t))
 ;;                 (len stack)))
 ;;   ;;:hints (("Goal" :use cdr-of-cons-not-not-found))
 ;;   )
 
-(defthm pop-until-zero-rec--not-found-if-no-elem
+(defthm pop-until-zero-recur--not-found-if-no-elem
   (implies (and (true-listp stack)
-                (not (some-item-zerop stack)))
-           (equal (pop-until-zero-rec stack t)
+                (not (some-item-zerop stack 0)))
+           (equal (pop-until-zero-recur stack 0 t)
                   :not-found)))
 
 (defthm pop-until-zero--same-size-if-no-elem
     (implies (and (true-listp stack)
-                  (not (some-item-zerop stack)))
-             (= (len (pop-until-zero stack t))
+                  (not (some-item-zerop stack 0)))
+             (= (len (pop-until-zero stack 0 t))
                 (len stack))))
 
 ;; BUGGY:

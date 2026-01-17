@@ -9,48 +9,33 @@
 (defmacro def-pop-until (name pred-name &key criteria)
   "Defines a POP-UNTIL function and a predicate for checking the stopping condition.
    Works in ACL2 (uses PACKN) and in plain Common Lisp (uses FORMAT/INTERN)."
-  (let ((rec-name
+  (let ((recur-name
           #+acl2
-            (packn (list name "-REC"))
+            (packn (list name "-RECUR"))
           #-acl2
-            (intern (format nil "~A-REC" name) (symbol-package name))))
+            (intern (format nil "~A-RECUR" name) (symbol-package name))))
     `(progn
        ;; Recursive helper
-       (defun ,rec-name (stack include)
+       (defun ,recur-name (stack crit-init include)
          (cond
            ((endp stack) :not-found)
-           ((,criteria (car stack))
+           ((,criteria crit-init (car stack))
             (if include (cdr stack) stack))
-           (t (,rec-name (cdr stack) include))))
+           (t (,recur-name (cdr stack) crit-init include))))
        ;; Top-level function
-       (defun ,name (stack include)
-         (let ((res (,rec-name stack include)))
+       (defun ,name (stack crit-init include)
+         (let ((res (,recur-name stack crit-init include)))
            (if (eql res :not-found) stack res)))
        ;; Predicate function
-       (defun ,pred-name (stack)
+       (defun ,pred-name (stack crit-init)
          (cond
            ((endp stack) nil)
-           ((,criteria (car stack)) t)
-           (t (,pred-name (cdr stack))))))))
+           ((,criteria crit-init (car stack)) t)
+           (t (,pred-name (cdr stack) crit-init)))))))
 
 
-;; (defmacro def-pop-until (name pred-name &key criteria)
-;;   (let ((rec-name (make-symbol-like name 'rec)))
-;;     `(progn
-;;      (defun ,rec-name (orig-stack stack include)
-;;        (cond
-;;          ((endp stack) orig-stack)
-;;          ((,criteria (car stack))
-;;           (if include (cdr stack) stack))
-;;          (t (,name orig-stack (cdr stack) include))))
-;;      (defun ,name (stack include) (,rec-name stack stack include))
-;;      (defun ,pred-name (stack)
-;;        (cond
-;;          ((endp stack) nil)
-;;          ((,criteria (car stack)) t)
-;;          (t (,pred-name (cdr stack))))))))
-
-;; (def-pop-until pop-until-equal-zero some-pop-until-equal-zero :criteria zerop)
+;; (defun until-el-p (crit-el el) (= crit-el el))
+;; (def-pop-until pop-until-zero some-item-zerop :criteria until-el-p)
 
 #+acl2
 (defconst *fname-terms* '(:decorations :dash :space :fnamechars :unexpected))
@@ -113,6 +98,11 @@
 treating NUM index in the same way as Python does it"
   (cons (subseq str 0 num) (subseq str num)))
 
-;; (def-pop-until pop-until-same-indent some-pop-until-equal-zero :criteria zerop)
+(defun until-indent-p (crit-indent ctx-stack-el)
+  (let ((ctx-indent (car ctx-stack-el)))
+      (= ctx-indent crit-indent)))
+
+(def-pop-until pop-until-same-indent some-pop-until-same-indent-p :criteria until-indent-p)
+
 ;; (defun extract-fname-and-indent-1 (str st) ;; TODO
 ;;   ())
