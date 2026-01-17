@@ -98,11 +98,50 @@
 treating NUM index in the same way as Python does it"
   (cons (subseq str 0 num) (subseq str num)))
 
+;; Further we suppose the context stack (ctx-stack) contains elements like (cons indent fname),
+;; where fname is the current file/dir name from the output of tree(1) as is!
+
 (defun until-indent-p (crit-indent ctx-stack-el)
   (let ((ctx-indent (car ctx-stack-el)))
       (= ctx-indent crit-indent)))
 
 (def-pop-until pop-until-same-indent some-pop-until-same-indent-p :criteria until-indent-p)
 
-;; (defun extract-fname-and-indent-1 (str st) ;; TODO
-;;   ())
+#+acl2
+(defun make-ctx () (list nil nil))
+
+#+acl2
+(defun ctx-last-fname (ctx) (car ctx))
+
+#+acl2
+(defun ctx-stack (ctx) (cadr ctx))
+
+#+acl2
+(defun set-ctx-last-fname (ctx new-last-fname) (cons new-last-fname (cadr ctx)))
+#-acl2
+(defun set-ctx-last-fname (ctx new-last-fname) (setf (ctx-last-fname ctx) new-last-fname))
+
+#+acl2
+(defun set-ctx-stack (ctx new-stack) (cons (car ctx) (list new-stack)))
+#-acl2
+(defun set-ctx-stack (ctx new-stack) (setf (ctx-stack ctx) new-stack))
+
+#-acl2
+(defstruct ctx last-fname stack)
+
+(defun push-indent-in-ctx-stack (ctx-stack indent fname)
+  (cons (cons indent fname) ctx-stack))
+
+(defun push-indent-in-ctx (ctx indent fname)
+  (let ((new-stack (push-indent-in-ctx-stack (ctx-stack ctx) indent fname)))
+    (set-ctx-stack ctx new-stack)))
+
+(defun add-fname-to-path (path fname)
+  "Adds fname to a path as: (fname path-comp2 path-comp1), ie to the head. Later such
+path will be converted to a string"
+  (cons fname path))
+
+(defun extract-fname-and-indent-1 (ctx line line-num results) ;; TODO
+  (if (= 1 line-num)
+      (_)
+      (_)))
