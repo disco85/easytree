@@ -75,28 +75,48 @@
 
 (defun next-fname-event (ch)
   (cond
-    ((member ch (coerce "+`├" 'list)) :decorations)
+    ((member ch (coerce "+`|│├" 'list)) :decorations)
     ((member ch (coerce "─-" 'list)) :dash)
     ((member ch (coerce " 	" 'list)) :space)
     ((not (member ch (coerce " 	" 'list))) :fnamechars)))
 
-#+acl2
-(defun split-string-at (str num)
-  (declare (xargs :guard (and (stringp str)
-                              (natp num)
-                              (<= num (length str)))))
-  (let* ((char-list (coerce str 'list))
-         (first-part (take num char-list))
-         (second-part (nthcdr num char-list)))
-    (cons (coerce first-part 'string)
-          (coerce second-part 'string))))
+;; #+acl2
+;; (defun split-string-at (str num)  ;; FIXME subseq exists in ACL2
+;;   (declare (xargs :guard (and (stringp str)
+;;                               (natp num)
+;;                               (<= num (length str)))))
+;;   (let* ((char-list (coerce str 'list))
+;;          (first-part (take num char-list))
+;;          (second-part (nthcdr num char-list)))
+;;     (cons (coerce first-part 'string)
+;;           (coerce second-part 'string))))
 #-acl2
 (declaim (ftype (function (string integer) cons) split-string-at))
-#-acl2
+
 (defun split-string-at (str num)
-  "Signals a condition if NUM is out of bounds of STR, else returns (str-before-num . str-after-num)
-treating NUM index in the same way as Python does it"
-  (cons (subseq str 0 num) (subseq str num)))
+  "Returns (str-before-num . str-after-num) treating NUM index in the same way as Python does it"
+  (let ((last-idx (length str)))
+    (if (or (<= last-idx 0) (> num last-idx))
+        nil
+        (cons (subseq str 0 num) (subseq str num last-idx)))))
+
+(defun extract-fname-and-indent-1 (str idx st)
+  (let* ((ch (char str 0))
+         (ev (next-fname-event ch))
+         (trans (next-fname st ev))
+         (new-st (car trans))
+         (ended (cdr trans)))
+    (cond (ended (cons new-st idx))
+          ((= 1 (length str)) (cons new-st idx))
+          (t (extract-fname-and-indent-1 (cdr (split-string-at str 1)) (1+ idx) new-st)))))
+
+(defun extract-fname-and-indent (str)
+  (let* ((final-trans (extract-fname-and-indent-1 str 0 :decorations))
+         (final-st (car final-trans))
+         (final-pos (cdr final-trans)))
+    (case final-st
+      (:fnamechars (cdr (split-string-at str final-pos)))
+      (t nil))))
 
 ;; Further we suppose the context stack (ctx-stack) contains elements like (cons indent fname),
 ;; where fname is the current file/dir name from the output of tree(1) as is!
@@ -141,7 +161,7 @@ treating NUM index in the same way as Python does it"
 path will be converted to a string"
   (cons fname path))
 
-(defun extract-fname-and-indent-1 (ctx line line-num results) ;; TODO
-  (if (= 1 line-num)
-      (_)
-      (_)))
+;; (defun parse-tree-output (ctx lines line-num results) ;; TODO
+;;   (if (= 1 line-num)
+;;       (_)
+;;       (_)))
