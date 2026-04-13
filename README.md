@@ -1,26 +1,31 @@
-# README #
+# Easytree tool (with ACL2 theorem proving) #
 
+Easytree is a tool parsing output of [tree](https://linux.die.net/man/1/tree "tree(1)")
+and recreating it in the current folder or somewhere else (it can prepend every result
+path with a prefix-directory). Also it can generate a POSIX shell script doing the same.
+Dry mode is supported as well.
 
-This README would normally document whatever steps are necessary to get your application up and running.
+## What is so special about it? ##
 
-### What is this repository for? ###
+It's written with [theorem proving](https://en.wikipedia.org/wiki/Automated_theorem_proving)
+in [ACL2](https://en.wikipedia.org/wiki/ACL2) friendly [Common Lisp](https://en.wikipedia.org/wiki/Common_Lisp),
+see [here](https://github.com/disco85/easytree/blob/main/acl2-utils.lisp).
 
-* Quick summary
-* Version
-* [Learn Markdown](https://bitbucket.org/tutorials/markdowndemo)
+Also the code includes [unit testing](https://github.com/disco85/easytree/blob/main/easytree-test.lisp).
 
-### How do I get set up? ###
+## How do I get set up? ##
 
-* Summary of set up
+Install [SBCL](https://www.sbcl.org/) first, then install [QuickLisp](https://www.quicklisp.org). After it:
 
-```
+```lisp
 (ql:quickload :qlot)
 ;; initialize project
 (qlot:init #P"/path/to/project/")
 ;; install deps
 (qlot:install)
 ```
-Or to install qlot (preferred) as binary (not library only):
+
+Or to install qlot (**preferred**) as binary (not library only):
 
 ``` shell
 curl -L https://qlot.tech/installer | sh
@@ -31,7 +36,12 @@ Build of project:
 
 ``` shell
 qlot exec ./build.sh
-# RELEASE= qlot exec ./build.sh  # for release
+```
+
+or (if you wanna get small executable):
+
+``` shell
+RELEASE= qlot exec ./build.sh
 ```
 
 To load in SBCL/SLY/SLIME and run tests:
@@ -41,7 +51,11 @@ To load in SBCL/SLY/SLIME and run tests:
 (asdf:test-system :easytree)
 ```
 
-To verify:
+## Verification ##
+
+First, install ACL2.
+
+Then, to verify:
 
 ``` lisp
 # run ACL2 first: /some/path/saved_acl2  and in its REPL:
@@ -49,19 +63,40 @@ To verify:
 (ld "acl2-utils.lisp")
 ```
 
-* Configuration
-* Dependencies
-* Database configuration
-* How to run tests
-* Deployment instructions
+Or better use the script [verify.sh](https://github.com/disco85/easytree/blob/main/verify.sh):
 
-### Contribution guidelines ###
+``` shell
+./verify.sh
+```
 
-* Writing tests
-* Code review
-* Other guidelines
+Theorem proving (TP) does not use all power of books, only simple and immediately available books:
 
-### Who do I talk to? ###
+``` shell
+(in-package "ACL2")  ;; all TP code should be in ACL2 package, it's simplest approach
 
-* Repo owner or admin
-* Other community or team contact
+(include-book "std/lists/suffixp" :dir :system)
+(include-book "std/lists/prefixp" :dir :system)
+(include-book "utils")
+```
+
+ACL2 is the most automatic TP system, you can prove some statements even without hints to
+the prover! Let's look at some of them.
+
+``` lisp
+(defthm extract-fname-and-indent--ends-in-unexpected-when-was-not-extracted
+    (implies (and (stringp str)
+                  (not (extract-fname-and-indent str)))
+             (eql (car (extract-fname-and-indent-1 str 0 :decorations))
+                  :unexpected)))
+```
+
+This defines a theorem `EXTRACT-FNAME-AND-INDENT--ENDS-IN-UNEXPECTED-WHEN-WAS-NOT-EXTRACTED` which
+will be automatically proven by ACL2. It states: if `(EXTRACT-FNAME-AND-INDENT STR)` failed then
+the FSM ends in `:UNEXPECTED` state. It can be read as:
+
+```
+       STR is string && EXTRACT-FNAME-AND-INDENT(str) is NIL
+-----------------------------------------------------------------------
+head of EXTRACT-FNAME-AND-INDENT-1(STR, 0, :DECORATIONS) is :UNEXPECTED
+```
+
