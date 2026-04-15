@@ -21,11 +21,12 @@ Install [SBCL](https://www.sbcl.org/) first, then install [QuickLisp](https://ww
 (ql:quickload :qlot)
 ;; initialize project
 (qlot:init #P"/path/to/project/")
-;; install deps
+;; install deps of the project listen in qlfile:
 (qlot:install)
 ```
 
-Or to install qlot (**preferred**) as binary (not library only):
+Or to install qlot (**preferred**) as binary (not library only)
+and the project's dependencies listed in `qlfile`:
 
 ``` shell
 curl -L https://qlot.tech/installer | sh
