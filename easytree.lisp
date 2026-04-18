@@ -194,7 +194,10 @@
 (defun main ()
   (let* ((*OS* (det-*OS*))
          (*path-sep* (det-*path-sep*))
-         (argv (uiop:command-line-arguments)))
-    (clingon:run (cli-main-cmd) argv)
-    ;; (print "Hello world")
-    ))
+         (argv (uiop:command-line-arguments))
+         (argv1 (loop for arg in argv
+                      if (string= arg "-h")
+                        collect "--help"
+                      else
+                        collect arg)))
+    (clingon:run (cli-main-cmd) argv1)))
